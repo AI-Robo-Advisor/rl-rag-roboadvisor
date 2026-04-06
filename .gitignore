@@ -33,3 +33,6 @@ build/
 # Streamlit cache
 .streamlit/
 
+CLAUDE.md
+prompt.txt
+

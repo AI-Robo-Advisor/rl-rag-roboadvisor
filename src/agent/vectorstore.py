@@ -121,6 +121,34 @@ def query_documents(
     return collection.query(**kwargs)
 
 
+def upsert_documents(
+    documents: List[str],
+    metadatas: List[Dict[str, str]],
+    ids: List[str],
+    persist_dir: str = DEFAULT_PERSIST_DIR,
+) -> None:
+    """
+    finance_news 컬렉션에 문서를 upsert합니다.
+
+    동일한 ID가 이미 존재하면 덮어쓰고, 없으면 새로 추가합니다.
+    중복 뉴스 방지에 사용됩니다.
+
+    Args:
+        documents: 임베딩할 원문 텍스트 리스트.
+        metadatas: 각 문서의 메타데이터 리스트.
+                   필드: title, summary, url, date, category.
+        ids:       각 문서의 고유 ID 리스트.
+        persist_dir: ChromaDB 데이터 저장 경로.
+    """
+    collection = get_collection(persist_dir)
+
+    for meta in metadatas:
+        if "summary" in meta and len(meta["summary"]) > 300:
+            meta["summary"] = meta["summary"][:300]
+
+    collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+
+
 def delete_documents(
     ids: List[str],
     persist_dir: str = DEFAULT_PERSIST_DIR,
