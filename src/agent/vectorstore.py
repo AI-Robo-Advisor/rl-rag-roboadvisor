@@ -32,6 +32,22 @@ def get_client(persist_dir: str = DEFAULT_PERSIST_DIR) -> chromadb.PersistentCli
     return chromadb.PersistentClient(path=persist_dir)
 
 
+def collection_document_count(persist_dir: str = DEFAULT_PERSIST_DIR) -> int:
+    """
+    ``finance_news`` 컬렉션에 저장된 문서(포인트) 개수를 반환합니다.
+
+    Args:
+        persist_dir: ChromaDB 디렉터리.
+
+    Returns:
+        문서 수. 조회 실패 시 -1.
+    """
+    try:
+        return int(get_collection(persist_dir).count())
+    except Exception:
+        return -1
+
+
 def get_collection(
     persist_dir: str = DEFAULT_PERSIST_DIR,
 ) -> chromadb.Collection:

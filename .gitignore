@@ -33,6 +33,9 @@ build/
 # Streamlit cache
 .streamlit/
 
+# ChromaDB 로컬 데이터 (자동 생성, 커밋 불필요)
+chroma_db/
+
 CLAUDE.md
 prompt.txt
 

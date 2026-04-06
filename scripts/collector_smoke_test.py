@@ -9,11 +9,18 @@
 실행 (프로젝트 루트):
     python scripts/collector_smoke_test.py
 
+기본적으로 ``.env``의 ``CHROMA_PERSIST_DIR``(미설정 시 ``./chroma_db``)에 적재합니다.
+LangGraph·API와 **동일한 DB**를 쓰므로, 스모크 후 ``python -m src.agent.graph``에서 RAG hit이 납니다.
+
+격리 DB가 필요하면:
+    COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
+
 필요: .env에 BOK_API_KEY(2번). 네트워크 필수.
 """
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -24,6 +31,7 @@ if str(ROOT) not in sys.path:
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+from apps.api.config import settings  # noqa: E402
 from src.agent.news_collector import (  # noqa: E402
     collect_bok_ecos_tables_and_store,
     collect_naver_finance_news_and_store,
@@ -32,8 +40,12 @@ from src.agent.vectorstore import query_documents  # noqa: E402
 
 
 def main() -> None:
-    persist_dir = tempfile.mkdtemp(prefix="chroma_collector_smoke_")
-    logging.info("Chroma 임시 경로: %s", persist_dir)
+    if os.getenv("COLLECTOR_SMOKE_TMP", "").strip().lower() in ("1", "true", "yes"):
+        persist_dir = tempfile.mkdtemp(prefix="chroma_collector_smoke_")
+        logging.info("Chroma 임시 경로(격리): %s", persist_dir)
+    else:
+        persist_dir = settings.CHROMA_PERSIST_DIR
+        logging.info("Chroma 경로(앱·그래프와 동일): %s", os.path.abspath(persist_dir))
 
     n_news = collect_naver_finance_news_and_store(
         max_items=5,
@@ -75,6 +87,11 @@ def main() -> None:
         print(
             f"[3] 검색 '{query}': 상위 유사도 결과에 키워드 문자열이 직접 없을 수 있음.\n"
             f"    첫 문서 미리보기: {docs[0][:160]!r}..."
+        )
+
+    if not os.getenv("COLLECTOR_SMOKE_TMP"):
+        print(
+            "\n(팁) 이제 같은 경로로 LangGraph 실행: python -m src.agent.graph"
         )
 
 
