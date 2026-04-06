@@ -4,3 +4,9 @@ streamlit
 python-dotenv
 mysql-connector-python
 pydantic
+# RAG / LangGraph
+chromadb
+langchain
+langchain-openai
+langchain-core
+langgraph
