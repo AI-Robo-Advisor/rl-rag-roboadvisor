@@ -3,10 +3,12 @@ ChromaDB 벡터스토어 설정 및 관리 모듈.
 finance_news 컬렉션을 로컬 ChromaDB에 연동합니다.
 
 메타데이터 스키마:
-    - title   (str): 뉴스 제목
-    - summary (str): 요약 (최대 300자)
-    - url     (str): 원문 URL
-    - date    (str): 발행일 (YYYY-MM-DD)
+    - title       (str): 제목(뉴스 또는 통계명)
+    - summary     (str): 요약 (최대 300자)
+    - url         (str): 원문·통계 조회 URL
+    - date        (str): 기준일 (YYYY-MM-DD)
+    - category    (str): 증시/실적/정책 등
+    - risk_label  (str, 선택): 뉴스 리스크 힌트(쉼표 구분). 통계는 보통 빈 문자열.
 """
 import os
 from typing import Any, Dict, List, Optional
@@ -136,7 +138,7 @@ def upsert_documents(
     Args:
         documents: 임베딩할 원문 텍스트 리스트.
         metadatas: 각 문서의 메타데이터 리스트.
-                   필드: title, summary, url, date, category.
+                   필드: title, summary, url, date, category, risk_label(선택).
         ids:       각 문서의 고유 ID 리스트.
         persist_dir: ChromaDB 데이터 저장 경로.
     """

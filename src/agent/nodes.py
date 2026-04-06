@@ -51,7 +51,10 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def researcher_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    벡터스토어에서 관련 뉴스 문서를 검색하는 노드.
+    벡터스토어에서 관련 문서를 검색하는 노드.
+
+    ``news_collector``가 ECOS 통계 메타데이터 등을 같은 ``finance_news`` 컬렉션에
+    적재하므로, 본 노드는 뉴스·경제통계 설명을 구분 없이 RAG 검색합니다.
 
     Planner가 생성한 plan과 원본 query를 결합하여
     ChromaDB에서 코사인 유사도 기반 Top-5 문서를 가져옵니다.

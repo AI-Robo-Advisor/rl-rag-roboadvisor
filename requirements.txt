@@ -1,5 +1,6 @@
 fastapi
 requests
+feedparser
 beautifulsoup4
 lxml
 uvicorn[standard]
@@ -13,3 +14,4 @@ langchain
 langchain-openai
 langchain-core
 langgraph
+pytest
