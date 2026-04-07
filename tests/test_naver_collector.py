@@ -1,10 +1,10 @@
-"""네이버 수집·risk_label 단위 테스트."""
+"""구글 뉴스 RSS 수집·risk_label 단위 테스트."""
 from unittest.mock import MagicMock, patch
 
 from src.agent.news_collector import (
-    infer_risk_label,
-    fetch_naver_finance_news_html,
     _news_doc_id,
+    fetch_google_news_rss,
+    infer_risk_label,
 )
 
 
@@ -24,28 +24,29 @@ def test_infer_risk_label_volatility_and_rate():
     assert "금리인상" in s
 
 
-def test_fetch_naver_html_mock():
-    html = """
-    <html><body><ul class="newsList">
-    <li><dl>
-        <dt><a href="/news/read.naver?nid=1">삼성전자 실적 발표</a></dt>
-        <dd class="articleSummary">
-            <span class="wdate">2026.04.06 09:00</span>
-            요약 텍스트입니다.
-        </dd>
-    </dl></li>
-    </ul></body></html>
-    """
-    mock_resp = MagicMock()
-    mock_resp.text = html
-    mock_resp.encoding = "utf-8"
-    mock_resp.raise_for_status = MagicMock()
-    with patch(
-        "src.agent.news_collector._SESSION.get",
-        return_value=mock_resp,
-    ):
-        items = fetch_naver_finance_news_html("http://dummy", "증시", 5)
+def test_fetch_google_news_rss_mock():
+    """feedparser mock으로 구글 뉴스 RSS 파싱을 검증합니다."""
+    import time
+
+    mock_entry = MagicMock()
+    mock_entry.title = "삼성전자 실적 발표 어닝쇼크"
+    mock_entry.link = "https://news.google.com/articles/test123"
+    mock_entry.summary = "<p>삼성전자 2분기 실적이 예상치를 크게 하회했다.</p>"
+    mock_entry.published_parsed = time.strptime("2026-04-07", "%Y-%m-%d")
+
+    mock_feed = MagicMock()
+    mock_feed.entries = [mock_entry]
+    mock_feed.bozo = False
+
+    with patch("src.agent.news_collector.feedparser.parse", return_value=mock_feed):
+        items = fetch_google_news_rss(
+            "https://news.google.com/rss/search?q=test", "실적쇼크", 5
+        )
+
     assert len(items) == 1
     assert "삼성전자" in items[0]["title"]
-    assert items[0]["category"] == "증시"
+    assert items[0]["category"] == "실적쇼크"
+    assert items[0]["source"] == "google_news"
+    assert items[0]["date"] == "2026-04-07"
+    assert "<p>" not in items[0]["summary"]  # HTML 태그 제거 확인
     assert len(_news_doc_id(items[0]["url"])) == 32

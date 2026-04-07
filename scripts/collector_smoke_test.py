@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-수집 파이프라인 스모크 테스트 (prompt.txt 출력 요청).
+수집 파이프라인 스모크 테스트.
 
-1. 네이버 금융 목록에서 최신 뉴스 5건 수집 후 ChromaDB 저장
+1. 구글 뉴스 RSS에서 최신 뉴스 10건 수집 후 ChromaDB 저장
 2. 한국은행 ECOS StatisticTableList로 지정 통계 목록 수집 후 저장
 3. '삼성전자 실적' 키워드로 검색해 관련 문서 포함 여부 확인
 
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 from apps.api.config import settings  # noqa: E402
 from src.agent.news_collector import (  # noqa: E402
     collect_bok_ecos_tables_and_store,
-    collect_naver_finance_news_and_store,
+    collect_google_news_and_store,
 )
 from src.agent.vectorstore import query_documents  # noqa: E402
 
@@ -47,13 +47,13 @@ def main() -> None:
         persist_dir = settings.CHROMA_PERSIST_DIR
         logging.info("Chroma 경로(앱·그래프와 동일): %s", os.path.abspath(persist_dir))
 
-    n_news = collect_naver_finance_news_and_store(
-        max_items=5,
+    n_news = collect_google_news_and_store(
+        max_items=10,
         persist_dir=persist_dir,
     )
-    print(f"[1] 네이버 뉴스 저장: {n_news}건")
+    print(f"[1] 구글 뉴스 저장: {n_news}건")
     if n_news < 1:
-        print("    경고: 네이버에서 가져온 건이 없습니다. 네트워크·파싱을 확인하세요.")
+        print("    경고: 구글 뉴스에서 가져온 건이 없습니다. 네트워크·RSS URL을 확인하세요.")
 
     n_ecos = collect_bok_ecos_tables_and_store(
         stat_codes=["102Y004"],

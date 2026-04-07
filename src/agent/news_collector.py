@@ -1,45 +1,54 @@
 """
-네이버 금융 뉴스(메인) + 한국은행 ECOS(보조) 통합 수집 및 ChromaDB 저장.
+구글 뉴스 RSS(메인) + 한국은행 ECOS(보조) 통합 수집 및 ChromaDB 저장.
 
-- 네이버: 금융 뉴스 목록 HTML(증시·실적·정책). 공개 RSS가 없어 requests 기반이며,
-  feedparser는 RSS/Atom URL이 있을 때 확장용으로 사용합니다.
-- ECOS StatisticTableList: 통계표 메타데이터(Market Analyzer / 거시 지표 보조).
+- 구글 뉴스 RSS: feedparser로 키워드 기반 수집 (API 키 불필요).
+  카테고리: 급등락 / 실적쇼크 / 규제변경
+- ECOS StatisticTableList: 통계표 메타데이터 (거시 지표 보조).
+  BOK_API_KEY 필요. 없으면 자동 스킵.
 
-공통 스키마(metadata): title, summary(≤300자), url, date, category, risk_label(뉴스만, 키워드 기반).
+공통 스키마(metadata): title, summary(≤300자), url, date, category.
+  구글뉴스: source="google_news" 추가.
+  통계: risk_label="" 추가.
 문서 ID: 뉴스=URL MD5, 통계=STAT_CODE.
 """
 from __future__ import annotations
 
 import hashlib
+import html as html_lib
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import urljoin
 
 import feedparser
 import requests
-from bs4 import BeautifulSoup
 
 from apps.api.config import settings
 from src.agent.vectorstore import upsert_documents
 
 logger = logging.getLogger(__name__)
 
-# --- 공통 -----------------------------------------------------------------
-NAVER_REQUEST_INTERVAL = 1.0
-ECOS_REQUEST_INTERVAL = 1.0
-
-NAVER_FINANCE_BASE = "https://finance.naver.com"
-
-# 증시 / 실적 / 정책 — 네이버 금융 뉴스 목록(HTML)
-NAVER_FINANCE_CATEGORY_URLS: Dict[str, str] = {
-    "증시": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
-    "실적": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=261",
-    "정책": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=263",
+# ---------------------------------------------------------------------------
+# 구글 뉴스 RSS 설정
+# ---------------------------------------------------------------------------
+GOOGLE_NEWS_FEEDS: Dict[str, str] = {
+    "급등락": "https://news.google.com/rss/search?q=주식+증시+급등+급락&hl=ko&gl=KR&ceid=KR:ko",
+    "실적쇼크": "https://news.google.com/rss/search?q=기업실적+어닝쇼크+실적발표&hl=ko&gl=KR&ceid=KR:ko",
+    "규제변경": "https://news.google.com/rss/search?q=금융규제+정책변경+금융당국&hl=ko&gl=KR&ceid=KR:ko",
 }
 
+GOOGLE_REQUEST_INTERVAL = 1.0  # 카테고리 간 요청 간격 (초)
+
+# ---------------------------------------------------------------------------
+# ECOS 설정
+# ---------------------------------------------------------------------------
+ECOS_REQUEST_INTERVAL = 1.0
+
+# ---------------------------------------------------------------------------
+# 공용 세션 (ECOS HTTP 요청용)
+# ---------------------------------------------------------------------------
 _SESSION = requests.Session()
 _SESSION.headers.update(
     {
@@ -51,6 +60,35 @@ _SESSION.headers.update(
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
 )
+
+
+# ---------------------------------------------------------------------------
+# 공통 헬퍼
+# ---------------------------------------------------------------------------
+def _news_doc_id(url: str) -> str:
+    """뉴스 URL의 MD5 해시를 ChromaDB 문서 ID로 반환합니다."""
+    return hashlib.md5(url.encode("utf-8")).hexdigest()
+
+
+def _strip_html(text: str) -> str:
+    """HTML 태그를 제거하고 HTML 엔티티를 디코딩합니다."""
+    text = re.sub(r"<[^>]+>", "", text)
+    return html_lib.unescape(text).strip()
+
+
+def _parse_rss_date(entry: Any) -> str:
+    """feedparser 엔트리에서 날짜를 YYYY-MM-DD 형식으로 추출합니다."""
+    if getattr(entry, "published_parsed", None):
+        try:
+            return time.strftime("%Y-%m-%d", entry.published_parsed)
+        except (TypeError, ValueError):
+            pass
+    if getattr(entry, "updated_parsed", None):
+        try:
+            return time.strftime("%Y-%m-%d", entry.updated_parsed)
+        except (TypeError, ValueError):
+            pass
+    return datetime.today().strftime("%Y-%m-%d")
 
 
 def infer_risk_label(title: str, summary: str) -> str:
@@ -85,264 +123,130 @@ def infer_risk_label(title: str, summary: str) -> str:
     return ",".join(found)
 
 
-def _news_doc_id(url: str) -> str:
-    """뉴스 URL 기준 Chroma ID (MD5)."""
-    return hashlib.md5(url.encode("utf-8")).hexdigest()
-
-
-def _parse_naver_date(raw: str) -> str:
-    """네이버 금융 날짜 문자열 -> YYYY-MM-DD."""
-    raw = raw.strip()
-    for fmt in ("%Y.%m.%d %H:%M", "%Y.%m.%d"):
-        try:
-            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return datetime.today().strftime("%Y-%m-%d")
-
-
-def fetch_naver_finance_news_html(
-    list_url: str,
+# ---------------------------------------------------------------------------
+# 구글 뉴스 RSS 수집
+# ---------------------------------------------------------------------------
+def fetch_google_news_rss(
+    feed_url: str,
     category: str,
-    limit: int,
+    limit: int = 10,
 ) -> List[Dict[str, str]]:
     """
-    네이버 금융 뉴스 **목록 HTML**에서 기사를 수집합니다.
+    구글 뉴스 RSS 피드에서 최신 뉴스를 수집합니다.
+
+    feedparser로 파싱하며 HTML 태그를 제거합니다.
 
     Args:
-        list_url: news_list.naver ... LSS2D URL.
-        category: 증시/실적/정책.
-        limit: 최대 수집 건수.
+        feed_url: 구글 뉴스 RSS URL (키워드 기반).
+        category: 뉴스 카테고리 ("급등락" / "실적쇼크" / "규제변경").
+        limit:    최대 수집 건수.
 
     Returns:
-        title, summary, url, date, category 키를 가진 dict 리스트.
+        수집된 뉴스 항목 딕셔너리 리스트.
+        키: title, url, date, category, source, summary
     """
     if limit <= 0:
         return []
 
+    items: List[Dict[str, str]] = []
     try:
-        resp = _SESSION.get(list_url, timeout=15)
-        resp.raise_for_status()
-        ct = (resp.headers.get("Content-Type") or "").lower()
-        if "charset=euc-kr" in ct:
-            resp.encoding = "euc-kr"
-        elif "charset=utf-8" in ct:
-            resp.encoding = "utf-8"
-        else:
-            resp.encoding = resp.apparent_encoding or "utf-8"
-    except requests.RequestException as e:
-        logger.error("네이버 금융 목록 요청 실패 [%s]: %s", list_url, e)
-        return []
+        feed = feedparser.parse(feed_url)
+        if getattr(feed, "bozo", False) and not feed.entries:
+            logger.warning("RSS 파싱 경고 [%s]: %s", category, feed.bozo_exception)
+            return items
 
-    soup = BeautifulSoup(resp.text, "lxml")
-    items: List[Dict[str, str]] = []
-
-    def _add_from_link_and_summary(title_el, dd_summary: Any) -> None:
-        nonlocal items
-        if len(items) >= limit:
-            return
-        title = title_el.get_text(strip=True)
-        href = title_el.get("href", "") or ""
-        article_url = urljoin(NAVER_FINANCE_BASE, href) if href else ""
-        if not title or not article_url:
-            return
-
-        date_str = ""
-        summary = ""
-        if dd_summary:
-            date_tag = dd_summary.select_one("span.wdate")
-            if date_tag:
-                date_str = _parse_naver_date(date_tag.get_text(strip=True))
-            for span in dd_summary.select("span"):
-                span.decompose()
-            summary = dd_summary.get_text(strip=True)[:300]
-
-        if len(summary) > 300:
-            summary = summary[:300]
-        if not date_str:
-            date_str = datetime.today().strftime("%Y-%m-%d")
-
-        items.append(
-            {
-                "title": title,
-                "summary": summary,
-                "url": article_url,
-                "date": date_str,
-                "category": category,
-            }
-        )
-
-    # 2024~ 네이버 금융: ul.realtimeNewsList > li.newsList > dl (한 dl에 여러 기사)
-    for dl in soup.select("ul.realtimeNewsList li.newsList dl"):
-        title_tags = dl.select("dt.articleSubject a, dd.articleSubject a")
-        summary_dds = dl.select("dd.articleSummary")
-        for t_a, dd_sum in zip(title_tags, summary_dds):
-            _add_from_link_and_summary(t_a, dd_sum)
-            if len(items) >= limit:
-                break
-        if len(items) >= limit:
-            break
-
-    # 구 레이아웃: ul.newsList > dl (dl당 1건, dt a)
-    if not items:
-        for dl in soup.select("ul.newsList dl"):
-            if len(items) >= limit:
-                break
-            title_tag = dl.select_one("dt.articleSubject a, dd.articleSubject a")
-            if not title_tag:
-                title_tag = dl.select_one("dt a")
-            if not title_tag:
+        for entry in feed.entries[:limit]:
+            title = _strip_html(getattr(entry, "title", "") or "").strip()
+            url = (getattr(entry, "link", "") or "").strip()
+            if not title or not url:
                 continue
-            _add_from_link_and_summary(title_tag, dl.select_one("dd.articleSummary"))
 
-    logger.info("[네이버:%s] %d건 파싱", category, len(items))
+            raw_summary = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
+            summary = _strip_html(raw_summary)[:300]
+            date = _parse_rss_date(entry)
+
+            items.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "date": date,
+                    "category": category,
+                    "source": "google_news",
+                    "summary": summary,
+                }
+            )
+    except Exception as e:
+        logger.error("구글 뉴스 RSS 수집 실패 [%s]: %s", category, e)
+
+    logger.info("[구글뉴스:%s] %d건 수집", category, len(items))
     return items
 
 
-def fetch_items_from_rss_feed(rss_url: str, category: str, limit: int) -> List[Dict[str, str]]:
-    """
-    feedparser로 RSS/Atom 피드에서 항목을 가져옵니다(확장·보조용).
-
-    Args:
-        rss_url: 피드 URL.
-        category: 저장 시 category 메타값.
-        limit: 최대 건수.
-
-    Returns:
-        title, summary, url, date, category.
-    """
-    if limit <= 0:
-        return []
-
-    parsed = feedparser.parse(
-        rss_url,
-        agent=_SESSION.headers.get("User-Agent", "rl-rag-roboadvisor/1.0"),
-    )
-    if getattr(parsed, "bozo", False) and not parsed.entries:
-        logger.warning("RSS 파싱 경고: %s (%s)", rss_url, getattr(parsed, "bozo_exception", ""))
-        return []
-
-    items: List[Dict[str, str]] = []
-    for ent in parsed.entries[:limit]:
-        title = (ent.get("title") or "").strip()
-        link = (ent.get("link") or "").strip()
-        if not title or not link:
-            continue
-        summary = (ent.get("summary") or ent.get("description") or "").strip()
-        if summary:
-            soup = BeautifulSoup(summary, "lxml")
-            summary = soup.get_text(separator=" ", strip=True)[:300]
-
-        published = ""
-        if ent.get("published_parsed"):
-            try:
-                published = time.strftime(
-                    "%Y-%m-%d", ent.published_parsed
-                )
-            except (TypeError, ValueError):
-                published = datetime.today().strftime("%Y-%m-%d")
-        elif ent.get("updated_parsed"):
-            try:
-                published = time.strftime("%Y-%m-%d", ent.updated_parsed)
-            except (TypeError, ValueError):
-                published = datetime.today().strftime("%Y-%m-%d")
-        else:
-            published = datetime.today().strftime("%Y-%m-%d")
-
-        items.append(
-            {
-                "title": title,
-                "summary": summary,
-                "url": link,
-                "date": published,
-                "category": category,
-            }
-        )
-
-    logger.info("[RSS:%s] %d건", category, len(items))
-    return items
-
-
-def _naver_items_to_upsert(
-    rows: List[Dict[str, str]],
-) -> Tuple[List[str], List[Dict[str, str]], List[str]]:
-    """뉴스 row -> documents, metadatas, ids."""
-    documents: List[str] = []
-    metadatas: List[Dict[str, str]] = []
-    ids: List[str] = []
-    for row in rows:
-        title = row["title"]
-        summary = row["summary"][:300] if row.get("summary") else ""
-        risk = infer_risk_label(title, summary)
-        meta = {
-            "title": title,
-            "summary": summary,
-            "url": row["url"],
-            "date": row["date"],
-            "category": row["category"],
-            "risk_label": risk,
-        }
-        documents.append(f"{title} {summary}")
-        metadatas.append(meta)
-        ids.append(_news_doc_id(row["url"]))
-    return documents, metadatas, ids
-
-
-def collect_naver_finance_news_and_store(
-    max_items: int = 5,
-    category_urls: Optional[Dict[str, str]] = None,
-    use_rss: bool = False,
-    rss_url_by_category: Optional[Dict[str, str]] = None,
+def collect_google_news_and_store(
+    max_items: int = 10,
+    feeds: Optional[Dict[str, str]] = None,
     persist_dir: Optional[str] = None,
 ) -> int:
     """
-    네이버 금융(또는 지정 RSS)에서 뉴스를 수집해 ChromaDB에 upsert합니다.
+    구글 뉴스 RSS 3개 피드에서 뉴스를 수집하고 ChromaDB에 upsert합니다.
 
-    카테고리 순회하며 max_items에 도달할 때까지 수집합니다. 요청 간격 1초 이상.
+    중복 방지: URL MD5 해시를 문서 ID로 사용.
+    요청 간격: 카테고리 사이 1초 이상 유지.
 
     Args:
-        max_items: 저장할 최대 건수.
-        category_urls: {카테고리: 목록 URL}. None이면 NAVER_FINANCE_CATEGORY_URLS.
-        use_rss: True면 rss_url_by_category의 URL로 feedparser 사용.
-        rss_url_by_category: use_rss True일 때 필수.
-        persist_dir: Chroma 경로.
+        max_items:   카테고리별 최대 수집 건수.
+        feeds:       {카테고리: RSS URL} 딕셔너리. None이면 GOOGLE_NEWS_FEEDS 사용.
+        persist_dir: ChromaDB 데이터 저장 경로.
 
     Returns:
-        upsert한 건수.
+        ChromaDB에 upsert된 총 건수.
     """
     if max_items <= 0:
         return 0
 
-    urls = category_urls or NAVER_FINANCE_CATEGORY_URLS
+    feed_map = feeds or GOOGLE_NEWS_FEEDS
     upsert_kwargs: Dict[str, Any] = {}
     if persist_dir:
         upsert_kwargs["persist_dir"] = persist_dir
 
-    collected: List[Dict[str, str]] = []
-    categories = list(urls.keys())
+    documents: List[str] = []
+    metadatas: List[Dict[str, str]] = []
+    ids: List[str] = []
 
+    categories = list(feed_map.keys())
     for i, cat in enumerate(categories):
-        if len(collected) >= max_items:
-            break
-        need = max_items - len(collected)
-        if use_rss and rss_url_by_category and cat in rss_url_by_category:
-            batch = fetch_items_from_rss_feed(rss_url_by_category[cat], cat, need)
-        else:
-            batch = fetch_naver_finance_news_html(urls[cat], cat, need)
-        collected.extend(batch)
-        if i < len(categories) - 1 and len(collected) < max_items:
-            time.sleep(NAVER_REQUEST_INTERVAL)
+        items = fetch_google_news_rss(feed_map[cat], cat, max_items)
+        for item in items:
+            doc_id = _news_doc_id(item["url"])
+            if doc_id in ids:
+                continue
+            doc_text = f"{item['title']} {item['summary']}"[:300]
+            meta: Dict[str, str] = {
+                "title": item["title"],
+                "summary": item["summary"],
+                "url": item["url"],
+                "date": item["date"],
+                "category": item["category"],
+                "source": item["source"],
+            }
+            documents.append(doc_text)
+            metadatas.append(meta)
+            ids.append(doc_id)
 
-    collected = collected[:max_items]
-    if not collected:
+        if i < len(categories) - 1:
+            time.sleep(GOOGLE_REQUEST_INTERVAL)
+
+    if not documents:
         return 0
-    documents, metadatas, ids = _naver_items_to_upsert(collected)
+
     upsert_documents(documents=documents, metadatas=metadatas, ids=ids, **upsert_kwargs)
-    logger.info("네이버 뉴스 ChromaDB upsert: %d건", len(documents))
+    logger.info("구글뉴스 ChromaDB upsert: %d건", len(documents))
     return len(documents)
 
 
-# --- ECOS (한국은행 Market Analyzer) ----------------------------------------
+# ---------------------------------------------------------------------------
+# ECOS (한국은행 Market Analyzer)
+# ---------------------------------------------------------------------------
 
 ECOS_STATISTIC_TABLE_LIST_BASE = "https://ecos.bok.or.kr/api/StatisticTableList"
 DEFAULT_STAT_CODES: Tuple[str, ...] = ("102Y004",)
@@ -363,7 +267,7 @@ def _normalize_result_code(code: str) -> str:
     c = (code or "").strip().upper()
     for prefix in ("INFO-", "ERROR-"):
         if c.startswith(prefix):
-            c = c[len(prefix) :]
+            c = c[len(prefix):]
     return c
 
 
@@ -610,13 +514,14 @@ def collect_bok_ecos_tables_and_store(
     return total
 
 
-# 하위 호환: 기존 테스트·스크립트에서 사용
+# 하위 호환
 collect_and_store = collect_bok_ecos_tables_and_store
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    collect_naver_finance_news_and_store(max_items=5)
+    n = collect_google_news_and_store(max_items=10)
+    print(f"구글 뉴스 수집: {n}건")
     if (os.getenv("BOK_API_KEY", "") or settings.BOK_API_KEY or "").strip():
         collect_bok_ecos_tables_and_store(
             stat_codes=["102Y004"], start_index=1, end_index=10
