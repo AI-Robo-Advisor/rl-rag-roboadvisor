@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from curl_cffi import requests as cf_requests
 from pykrx import stock
 
 from config import (
@@ -49,21 +50,40 @@ def collect_global(
     Raises:
         ValueError: 수집 결과가 비어 있을 때.
     """
+    # curl_cffi로 Chrome 브라우저 지문 모방 → Cloudflare 레이트 리밋 우회
+    session = cf_requests.Session(impersonate="chrome")
+    # yfinance history()의 end는 exclusive → +1일로 지정해 pykrx와 동일한 inclusive 범위 확보
+    end_exclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
     logger.info("해외 ETF 수집 시작: %s", tickers)
-    raw = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False)
+    frames: list[pd.Series] = []
+    for ticker in tickers:
+        adj = pd.Series(dtype=float)
+        for attempt in range(1, 4):  # 최대 3회 재시도
+            try:
+                t = yf.Ticker(ticker, session=session)
+                hist = t.history(start=start, end=end_exclusive, auto_adjust=False)
+                if not hist.empty:
+                    adj = hist["Adj Close"].rename(ticker)
+                    adj.index = pd.to_datetime(adj.index).tz_localize(None)
+                    adj.index.name = "Date"
+                    break
+            except Exception as exc:
+                logger.warning("  %s 시도 %d/3 실패: %s", ticker, attempt, exc)
+            wait = attempt * 10
+            logger.warning("  %s — %d초 대기 후 재시도", ticker, wait)
+            time.sleep(wait)
 
-    adj_close = raw["Adj Close"]
-    if isinstance(adj_close, pd.Series):
-        adj_close = adj_close.to_frame(name=tickers[0])
+        if adj.empty:
+            raise ValueError(f"yfinance 수집 결과가 비어 있습니다: {ticker}")
 
-    adj_close.index = pd.to_datetime(adj_close.index)
-    adj_close.index.name = "Date"
+        frames.append(adj)
+        logger.info("  %s 수집 완료: %d행", ticker, len(adj))
+        time.sleep(1)
 
-    if adj_close.empty:
-        raise ValueError("yfinance 수집 결과가 비어 있습니다.")
-
-    logger.info("해외 ETF 수집 완료: shape=%s", adj_close.shape)
-    return adj_close[tickers]  # 컬럼 순서 보장
+    result = pd.concat(frames, axis=1)
+    logger.info("해외 ETF 수집 완료: shape=%s", result.shape)
+    return result
 
 
 def collect_kr(
@@ -92,7 +112,10 @@ def collect_kr(
     logger.info("국내 ETF 수집 시작: %s", tickers)
     frames: list[pd.DataFrame] = []
     for ticker in tickers:
-        df = stock.get_etf_ohlcv_by_date(start_yyyymmdd, end_yyyymmdd, ticker)
+        # get_market_ohlcv_by_date: ETF도 지원하며 ISIN 사전 조회 불필요
+        df = stock.get_market_ohlcv_by_date(start_yyyymmdd, end_yyyymmdd, ticker)
+        if df.empty:
+            raise ValueError(f"pykrx 수집 결과가 비어 있습니다: {ticker}")
         close = df[["종가"]].rename(columns={"종가": ticker})
         close.index = pd.to_datetime(close.index)
         close.index.name = "Date"
