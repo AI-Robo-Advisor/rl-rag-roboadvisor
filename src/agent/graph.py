@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Literal
+from typing import List, Literal
 
 from langgraph.graph import END, StateGraph
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
             print(f"▶ [{node_name}]")
             if not isinstance(payload, dict):
                 continue
-            p = payload  # type: Dict[str, Any]
+            p = payload
             if "plan" in p and p["plan"]:
                 print(f"  plan: {str(p['plan'])[:300]}…")
             if "documents" in p:

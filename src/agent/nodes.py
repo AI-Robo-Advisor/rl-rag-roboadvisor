@@ -348,11 +348,18 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
             f"[리스크 태그]\n{risk_summary}"
         )
     )
+    DISCLAIMER = (
+        "\n\n---\n"
+        "**[면책 조항]** 본 분석은 교육 목적으로만 제공되며 실제 투자 조언이 아닙니다. "
+        "백테스팅 성과는 미래 수익을 보장하지 않습니다. "
+        "투자 결정은 반드시 전문 금융 기관과 상담 후 본인 책임하에 이루어져야 합니다."
+    )
+
     try:
-        response = llm.invoke([sys, hum]).content
+        response = llm.invoke([sys, hum]).content + DISCLAIMER
     except openai.OpenAIError as e:
         logger.error("analyst: LLM 호출 실패 (%s).", e)
-        response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}"
+        response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}" + DISCLAIMER
     tail = _think_log(
         "analyst",
         f"응답 길이={len(response)}자 (미리보기: {response[:80]}…)",
