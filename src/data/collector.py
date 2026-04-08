@@ -25,7 +25,7 @@ from config import (
     TICKERS_GLOBAL,
     TICKERS_KR,
 )
-from src.data.indicators import compute_indicators
+from src.data.indicators import build_features as _build_features
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -176,44 +176,18 @@ def normalize_zscore(df: pd.DataFrame) -> pd.DataFrame:
     return (df - df.mean()) / df.std()
 
 
-def build_features(
-    prices: pd.DataFrame,
-    returns_raw: pd.DataFrame,
-) -> pd.DataFrame:
-    """정규화된 수익률과 기술적 지표를 결합하여 features DataFrame을 만든다.
-
-    처리 순서:
-        1. indicators.compute_indicators(prices)로 RSI·MACD 계산
-        2. returns_raw 컬럼을 {ticker}_return으로 rename
-        3. returns + indicators concat
-        4. Z-score 정규화
-        5. dropna (MACD 초기 ~33행 NaN 제거)
+def build_features(returns_raw: pd.DataFrame) -> pd.DataFrame:
+    """로그수익률을 indicators.build_features에 위임하여 features DataFrame을 만든다.
 
     Args:
-        prices: 원본 가격 DataFrame (지표 계산에 사용).
-        returns_raw: raw 로그수익률 DataFrame.
+        returns_raw: raw 로그수익률 DataFrame (index=Date, columns=티커명).
 
     Returns:
         Z-score 정규화된 features DataFrame.
         columns: {ticker}_return, {ticker}_RSI, {ticker}_MACD, {ticker}_MACD_signal × 10자산
         shape: returns_raw보다 약 33행 적음 (정상).
     """
-    indicators = compute_indicators(prices)
-
-    returns_renamed = returns_raw.rename(
-        columns={ticker: f"{ticker}_return" for ticker in returns_raw.columns}
-    )
-
-    combined = pd.concat([returns_renamed, indicators], axis=1)
-    normalized = normalize_zscore(combined).dropna()
-
-    logger.info(
-        "features 구성 완료: shape=%s (returns %d행 대비 %d행 적음)",
-        normalized.shape,
-        len(returns_raw),
-        len(returns_raw) - len(normalized),
-    )
-    return normalized
+    return _build_features(returns_raw)
 
 
 def save_features(features: pd.DataFrame, path: str | Path) -> None:
@@ -250,7 +224,7 @@ def main() -> None:
     save_raw_returns(returns, returns_path)
 
     # 6–7. features 구성(지표 포함 + Z-score) 및 저장
-    features = build_features(prices, returns)
+    features = build_features(returns)
     save_features(features, features_path)
 
     logger.info("파이프라인 완료.")
