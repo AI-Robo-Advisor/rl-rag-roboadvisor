@@ -11,6 +11,8 @@ import operator
 import os
 from typing import Annotated, Any, Dict, List, NotRequired, TypedDict
 
+import chromadb.errors
+import openai
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -94,7 +96,11 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
         )
     )
     hum = HumanMessage(content=f"사용자 질의:\n{query}")
-    plan = llm.invoke([sys, hum]).content
+    try:
+        plan = llm.invoke([sys, hum]).content
+    except openai.OpenAIError as e:
+        logger.error("planner: LLM 호출 실패 (%s). 원 질의를 플랜으로 대체합니다.", e)
+        plan = query
     after = _think_log("planner", f"플랜 확정(요약): {plan[:200]}{'…' if len(plan) > 200 else ''}")
     return {"plan": plan, "messages": [msg, after]}
 
@@ -168,7 +174,9 @@ def researcher_node(state: AgentState) -> Dict[str, Any]:
                 "researcher",
                 f"Chroma hit={len(documents)}건 (top-k=5, DB총 {total_cnt}건, {abs_persist})",
             )
-    except Exception as e:
+    except (chromadb.errors.ChromaError, ValueError, OSError) as e:
+        # ChromaDB 관련 예외(컬렉션 오류, 잘못된 파라미터, DB 파일 I/O)만 포획.
+        # 그 외 예상치 못한 예외는 상위로 전파하여 파이프라인이 명시적으로 실패하도록 함.
         logger.exception("researcher: vectorstore 조회 실패")
         mid = _think_log(
             "researcher",
@@ -229,7 +237,11 @@ def _refine_search_query_for_retry(state: AgentState) -> str:
             f"위 검색은 결과가 부족했습니다. 더 넓거나 다른 표현의 검색문 한 줄:"
         )
     )
-    return llm.invoke([sys, hum]).content.strip()
+    try:
+        return llm.invoke([sys, hum]).content.strip()
+    except openai.OpenAIError as e:
+        logger.error("refine_query: LLM 호출 실패 (%s). 이전 쿼리를 유지합니다.", e)
+        return prev
 
 
 def grade_documents_node(state: AgentState) -> Dict[str, Any]:
@@ -264,7 +276,8 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
         msgs.append(_think_log("grade_documents", "판정: 문서 수 < 2 → 불충분"))
     elif dists and len(dists) == len(docs):
         best = min(float(x) for x in dists)
-        # Chroma cosine distance: 0에 가까울수록 유사. 0.75 넘으면 상위 결과도 느슨함으로 간주.
+        # ChromaDB 코사인 거리: 0(완전 일치) ~ 1(완전 다름).
+        # 0.75 초과 = 상위 결과조차 관련성이 낮다고 판단. 실험적으로 설정한 임계값 (조정 가능).
         if best > 0.75:
             insufficient = True
             msgs.append(
@@ -335,7 +348,11 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
             f"[리스크 태그]\n{risk_summary}"
         )
     )
-    response = llm.invoke([sys, hum]).content
+    try:
+        response = llm.invoke([sys, hum]).content
+    except openai.OpenAIError as e:
+        logger.error("analyst: LLM 호출 실패 (%s).", e)
+        response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}"
     tail = _think_log(
         "analyst",
         f"응답 길이={len(response)}자 (미리보기: {response[:80]}…)",
