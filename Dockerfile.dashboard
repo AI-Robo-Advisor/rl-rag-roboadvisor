@@ -1,5 +1,5 @@
 # Streamlit은 FastAPI에 HTTP 통신만 하므로 모델을 직접 로드하지 않음
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -10,8 +10,8 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/dashboard/ src/dashboard/
+COPY apps/dashboard/ apps/dashboard/
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "src/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+CMD ["streamlit", "run", "apps/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

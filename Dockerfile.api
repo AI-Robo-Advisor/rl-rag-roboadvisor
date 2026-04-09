@@ -1,5 +1,5 @@
-# Python 3.10 (과제 권장 버전)
-FROM python:3.10
+# Python 3.11 (팀 개발 환경 통일)
+FROM python:3.11
 
 # 작업 디렉토리
 WORKDIR /app
