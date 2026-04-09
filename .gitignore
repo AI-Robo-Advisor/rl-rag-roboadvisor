@@ -33,3 +33,10 @@ build/
 # Streamlit cache
 .streamlit/
 
+# Data files (수집 결과물, 재현 가능하므로 커밋 제외)
+data/raw/
+data/processed/
+*.parquet
+
+# ChromaDB
+chroma_db/
