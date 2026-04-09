@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 import pandas as pd
-import pandas_ta as ta
+import pandas_ta_classic as ta
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -45,11 +45,13 @@ def compute_indicators(returns: pd.DataFrame) -> pd.DataFrame:
         series: pd.Series = returns[ticker]
 
         # RSI (period=14)
-        rsi = ta.rsi(series, length=14)
+        # clip(0, 100): pandas-ta-classic이 로그수익률 입력 시 부동소수점 오차로
+        # 100을 미세하게 초과하는 엣지케이스 방지 (RSI 정의상 반드시 0~100)
+        rsi = ta.rsi(series, length=14).clip(0, 100)
         rsi.name = f"{ticker}_RSI"
 
         # MACD (fast=12, slow=26, signal=9)
-        # pandas-ta 반환 컬럼: MACD_12_26_9 (값), MACDh_12_26_9 (히스토그램), MACDs_12_26_9 (시그널)
+        # pandas-ta-classic 반환 컬럼: MACD_12_26_9 (값), MACDh_12_26_9 (히스토그램), MACDs_12_26_9 (시그널)
         macd_df: pd.DataFrame = ta.macd(series, fast=12, slow=26, signal=9)
         macd_val = macd_df["MACD_12_26_9"].rename(f"{ticker}_MACD")
         macd_sig = macd_df["MACDs_12_26_9"].rename(f"{ticker}_MACD_signal")

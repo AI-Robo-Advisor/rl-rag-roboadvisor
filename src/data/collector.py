@@ -166,6 +166,22 @@ def compute_log_returns(prices: pd.DataFrame) -> pd.DataFrame:
     return returns
 
 
+def save_prices(prices: pd.DataFrame, path: str | Path) -> None:
+    """병합·정제된 원본 가격 데이터를 parquet으로 저장한다.
+
+    inner join + ffill + dropna 이후의 최종 가격 DataFrame을 저장한다.
+    로그수익률 계산 전 상태이므로 절대 가격값이다.
+
+    Args:
+        prices: 병합·정제된 가격 DataFrame (index=Date, columns=티커명).
+        path: 저장 경로 (디렉토리가 없으면 자동 생성).
+    """
+    dest = Path(path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    prices.to_parquet(dest)
+    logger.info("prices.parquet 저장 완료: %s  shape=%s", dest, prices.shape)
+
+
 def save_raw_returns(returns: pd.DataFrame, path: str | Path) -> None:
     """정규화 전 raw 로그수익률을 parquet으로 저장한다.
 
@@ -231,9 +247,11 @@ def main() -> None:
 
     처리 순서 (CLAUDE.local.md 지정, 변경 금지):
         yfinance 수집 → pykrx 수집 → 병합 → ffill/dropna
+        → prices.parquet(원본 가격) 저장
         → 로그수익률 → returns.parquet(raw) 저장
         → features 구성(지표 포함) → Z-score 정규화 → features.parquet 저장
     """
+    prices_path = Path(DATA_RAW_DIR) / "prices.parquet"
     returns_path = Path(DATA_PROCESSED_DIR) / "returns.parquet"
     features_path = Path(DATA_PROCESSED_DIR) / "features.parquet"
 
@@ -241,6 +259,9 @@ def main() -> None:
     df_global = collect_global(TICKERS_GLOBAL, START_DATE, END_DATE)
     df_kr = collect_kr(TICKERS_KR, START_DATE, END_DATE)
     prices = merge_prices(df_global, df_kr)
+
+    # 3-1. 원본 가격 저장 (data/raw/)
+    save_prices(prices, prices_path)
 
     # 4–5. 로그수익률 계산 및 raw 저장
     returns = compute_log_returns(prices)
@@ -251,6 +272,7 @@ def main() -> None:
     save_features(features, features_path)
 
     logger.info("파이프라인 완료.")
+    logger.info("  prices  : %s  shape=%s", prices_path, prices.shape)
     logger.info("  returns : %s  shape=%s", returns_path, returns.shape)
     logger.info("  features: %s  shape=%s", features_path, features.shape)
 
