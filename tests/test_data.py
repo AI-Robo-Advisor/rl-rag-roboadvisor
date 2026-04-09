@@ -20,6 +20,7 @@ from src.data.indicators import compute_indicators
 # ---------------------------------------------------------------------------
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
+PRICES_PATH = Path("data/raw/prices.parquet")
 
 EXPECTED_TICKERS: list[str] = [
     "SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"
@@ -146,4 +147,23 @@ def test_macd_columns_exist(features_df: pd.DataFrame) -> None:
     )
     assert len(signal_cols) == len(EXPECTED_TICKERS), (
         f"MACD_signal 컬럼 수 불일치: {signal_cols}"
+    )
+
+
+def test_prices_parquet_loadable() -> None:
+    """data/raw/prices.parquet이 정상 로드되어야 한다."""
+    df = pd.read_parquet(PRICES_PATH)
+    assert not df.empty, "prices.parquet이 비어 있음"
+    assert len(df.columns) == 10, f"열 수 불일치: {len(df.columns)}열"
+
+
+def test_prices_shape_larger_than_returns() -> None:
+    """prices 행 수가 returns보다 1행 많아야 한다 (로그수익률 dropna로 첫 행 제거).
+
+    prices.shape[0] == returns.shape[0] + 1 이어야 정상이다.
+    """
+    prices = pd.read_parquet(PRICES_PATH)
+    returns = pd.read_parquet(RETURNS_PATH)
+    assert prices.shape[0] == returns.shape[0] + 1, (
+        f"prices({prices.shape[0]}행) != returns({returns.shape[0]}행) + 1"
     )
