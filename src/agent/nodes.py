@@ -277,8 +277,8 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
     elif dists and len(dists) == len(docs):
         best = min(float(x) for x in dists)
         # ChromaDB 코사인 거리: 0(완전 일치) ~ 1(완전 다름).
-        # 0.75 초과 = 상위 결과조차 관련성이 낮다고 판단. 실험적으로 설정한 임계값 (조정 가능).
-        if best > 0.75:
+        # 0.25 초과 = 상위 결과조차 관련성이 낮다고 판단. 실험적으로 설정한 임계값 (조정 가능).
+        if best > 0.25:
             insufficient = True
             msgs.append(
                 _think_log(
