@@ -90,41 +90,44 @@ API_BASE_URL=http://api:8000
 LOG_LEVEL=INFO
 ```
 
-## 자주 쓰는 명령어
+`.env` 커밋 절대 금지.
+
+---
+
+## 주요 명령어
+
 ```bash
 # 테스트
-pytest tests/ -v -m "not integration"   # 단위 테스트
-pytest tests/ -v                         # 전체 테스트
+pytest tests/ -v -m "not integration"
+pytest tests/ -v
+pytest tests/test_data.py -v   # 데이터 파이프라인 단독 검증
 
-# 로컬 직접 실행
+# 데이터 파이프라인 (박지민 담당)
+python -m src.data.collector          # 전체 실행: 수집 → 병합 → returns/features/prices parquet 저장
+python -m src.data.indicators         # indicators만 재생성 (returns.parquet 필요)
+
+# 로컬 실행
 uvicorn apps.api.main:app --reload
 streamlit run apps/dashboard/app.py
-
-# 뉴스 수집 (smoke test)
-COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
-
-# LangGraph 실행
 python -m src.agent.graph
 
 # Docker
-docker compose up          # 전체 서비스 실행
-docker compose up api      # API만 실행
-docker compose build       # 이미지 재빌드
+docker compose up
+docker compose up api
+
+# 뉴스 수집 smoke test
+COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 ```
 
-## 스프린트 일정
-| 스프린트 | 기간 | 주요 목표 |
-|---------|------|---------|
-| Sprint 1 | 3/31~4/13 | 환경 세팅 + 기초 구현 |
-| Sprint 2 | 4/14~4/27 | 핵심 기능 구현 |
-| Sprint 3 | 4/28~5/11 | 분석 + 연동 |
-| Sprint 4 | 5/12~5/25 | 통합 테스트 + 버그픽스 |
-| Sprint 5 | 5/26~6/15 | 문서 + 최종 마무리 |
-
-**주요 마감**: 4/13 제안 발표 | 5/11 중간 발표 | 6/15 완료 보고
-
-## 성능 기준
-- RL 샤프비율: 동일가중 대비 +0.2 이상
-- 백테스트 누적 수익률: 벤치마크(SPY) 대비 +10%p 이상
-- API 응답 시간: 요청당 5초 이내
-- pytest: 10개 이상 통과
+> **현재 구현 상태** (2026-04-09 기준):
+>
+> | 모듈 | 상태 |
+> |------|------|
+> | `apps/api/` | `/health` 엔드포인트만 구현. `/optimize`, `/explain`, `/research`, `/backtest` 미구현 |
+> | `apps/dashboard/` | 플레이스홀더만 존재 |
+> | `src/data/collector.py` | ✅ 완료 — yfinance·pykrx 수집, 병합, 로그수익률 계산, parquet 저장 |
+> | `src/data/indicators.py` | ✅ 완료 — RSI(14), MACD(12/26/9) 계산, Z-score 정규화, features.parquet 저장 |
+> | `data/raw/prices.parquet` | ✅ 생성됨 (10자산, 2020-01-01~2025-12-31) |
+> | `data/processed/returns.parquet` | ✅ 생성됨 (~1423행, 10열, raw 로그수익률) |
+> | `data/processed/features.parquet` | ✅ 생성됨 (~1390행, 40열, Z-score 정규화) |
+> | `src/agent/`, `src/rl/` | 미구현 (개발 예정) |

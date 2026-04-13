@@ -33,6 +33,11 @@ build/
 # Streamlit cache
 .streamlit/
 
+# Data files (수집 결과물, 재현 가능하므로 커밋 제외)
+data/raw/
+data/processed/
+*.parquet
+
 # ChromaDB 로컬 데이터 (자동 생성, 커밋 불필요)
 chroma_db/
 
