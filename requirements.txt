@@ -1,6 +1,11 @@
-fastapi
-uvicorn[standard]
-streamlit
-python-dotenv
-mysql-connector-python
-pydantic
+fastapi==0.135.3
+uvicorn[standard]==0.44.0
+streamlit==1.56.0
+python-dotenv==1.2.2
+mysql-connector-python==9.6.0
+pydantic==2.12.5
+gymnasium[classic-control]==1.2.3
+stable-baselines3==2.8.0
+numpy==2.2.6
+# 테스트
+pytest==9.0.3
