@@ -12,7 +12,7 @@ RL + RAG 기반 AI 로보어드바이저.
 ## 역할 분담
 | 담당자 | 이니셜 | 담당 영역 | 담당 파일/디렉터리 |
 |--------|--------|-----------|------------------|
-| 강유영 | u | RAG/프론트 | `src/agent/`, `src/dashboard/`, `src/rl/backtest.py`, `src/rl/metrics.py`, `src/rl/anova.py` |
+| 강유영 | u | RAG/프론트 | `src/agent/`, `apps/dashboard/`, `src/rl/backtest.py`, `src/rl/metrics.py`, `src/rl/anova.py` |
 | 박지민 | j | 데이터/백엔드 | `apps/api/`, `src/data/collector.py`, `src/data/indicators.py` |
 | 이문정 | m | RL/인프라 | `src/rl/env.py`, `src/rl/train.py`, `src/rl/shap.py`, `docker-compose.yml`, `Dockerfile.*` |
 
@@ -27,7 +27,7 @@ RL + RAG 기반 AI 로보어드바이저.
 ```
 src/agent/       # LangGraph + ChromaDB + 뉴스 수집 (강유영)
 src/rl/          # RL 환경·학습·분석 (이문정/강유영)
-src/dashboard/   # Streamlit 6탭 (강유영)
+apps/dashboard/  # Streamlit 6탭 (강유영)
 apps/api/        # FastAPI 백엔드 (박지민)
 scripts/         # 수동 실행 스크립트
 tests/           # pytest 테스트
@@ -73,7 +73,7 @@ START → planner → researcher → grade_documents → analyst → END
 - **타 팀원 담당 파일 무단 수정 금지** (역할 분담표 참고)
 - `apps/api/` 직접 수정 금지 — 박지민 담당, PR로 요청
 - `src/rl/env.py`, `src/rl/train.py` 직접 수정 금지 — 이문정 담당
-- Streamlit(`src/dashboard/`)에서 모델·DB 직접 로드 금지 — FastAPI HTTP 통신만 사용
+- Streamlit(`apps/dashboard/`)에서 모델·DB 직접 로드 금지 — FastAPI HTTP 통신만 사용
 - `chroma_db/` 디렉터리 커밋 금지 — 로컬 생성 데이터
 - `--no-verify` 플래그로 hook 우회 금지
 
@@ -98,7 +98,7 @@ pytest tests/ -v                         # 전체 테스트
 
 # 로컬 직접 실행
 uvicorn apps.api.main:app --reload
-streamlit run src/dashboard/app.py
+streamlit run apps/dashboard/app.py
 
 # 뉴스 수집 (smoke test)
 COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
