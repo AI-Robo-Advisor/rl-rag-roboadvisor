@@ -93,7 +93,7 @@ Streamlit은 위 엔드포인트만 호출. 모델·DB 직접 로드 금지.
 
 ## 코딩 규칙
 
-- **Python 3.10+**, 타입 힌트 필수
+- **Python 3.11+**, 타입 힌트 필수
 - **네이밍**: `snake_case` (함수·변수) · `PascalCase` (클래스) · `UPPER_SNAKE_CASE` (상수)
 - **Docstring**: Google 스타일 (Args / Returns / Raises)
 - **예외 처리**: 구체적 타입 (`except requests.Timeout`), `except Exception` 최소화
