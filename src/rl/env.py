@@ -18,7 +18,7 @@ class PortfolioEnv(gym.Env):
         self.weights = np.ones(self.n_assets, dtype=np.float32) / self.n_assets
 
         # Sprint1에서는 returns window + current weights만 사용
-        obs_dim = (self.lookback * self.n_assets) + self.n_assets
+        obs_dim = (self.lookback + 3) * self.n_assets
 
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -71,7 +71,7 @@ class PortfolioEnv(gym.Env):
         action = np.array(action, dtype=np.float32)
         action = np.clip(action, 0.0, 1.0)
 
-        if action.sum() == 0:
+        if action.sum() < 1e-6:
             action = np.ones(self.n_assets, dtype=np.float32) / self.n_assets
         else:
             action = action / action.sum()
