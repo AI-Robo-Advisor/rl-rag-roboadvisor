@@ -11,5 +11,7 @@ class Settings:
     API_BASE_URL: str = os.getenv("API_BASE_URL", "http://api:8000")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+    BOK_API_KEY: str = os.getenv("BOK_API_KEY", "")
 
 settings = Settings()
