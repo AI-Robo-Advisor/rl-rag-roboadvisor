@@ -30,3 +30,7 @@ pandas-ta-classic==0.4.47
 pyarrow==19.0.1
 fastparquet==2024.11.0
 curl_cffi==0.11.1
+
+# RL
+gymnasium[classic-control]==1.2.3
+stable-baselines3==2.8.0
