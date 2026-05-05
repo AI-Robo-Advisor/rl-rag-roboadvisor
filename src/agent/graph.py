@@ -99,6 +99,8 @@ def run_graph(query: str) -> AgentState:
         "retry_count": 0,
         "needs_research_retry": False,
         "response": "",
+        "sources": [],
+        "reasoning_trace": "",
     }
     return graph.invoke(initial_state)
 
@@ -132,6 +134,8 @@ if __name__ == "__main__":
         "retry_count": 0,
         "needs_research_retry": False,
         "response": "",
+        "sources": [],
+        "reasoning_trace": "",
     }
 
     think_accum: List[str] = []
