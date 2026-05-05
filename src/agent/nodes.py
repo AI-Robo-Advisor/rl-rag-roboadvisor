@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from apps.api.config import settings
-from src.agent.risk_tags import extract_risk_tags
+from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
 from src.agent.vectorstore import collection_document_count, query_documents
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,8 @@ class AgentState(TypedDict):
     retry_count: int
     needs_research_retry: bool
     response: str
+    sources: List[str]
+    reasoning_trace: str
     search_query: NotRequired[str]
 
 
@@ -322,23 +324,36 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     ``context``와 리스크 태그를 근거로 최종 투자 관점 의견을 작성합니다.
 
     Args:
-        state: ``query``, ``context``, ``risk_tags`` 권장.
+        state: ``query``, ``context``, ``documents``, ``risk_tags`` 권장.
 
     Returns:
-        ``response`` 및 로그 ``messages``.
+        ``response`` (report), ``sources``, ``reasoning_trace``, ``risk_tags`` (3종) 및 로그 ``messages``.
     """
     query = state["query"]
     context = state.get("context") or "관련 문서 없음"
-    risk_tags: List[str] = state.get("risk_tags") or []
+    documents: List[Dict[str, Any]] = state.get("documents") or []
+    general_risk_tags: List[str] = state.get("risk_tags") or []
+
+    # 문서 URL 추출
+    sources: List[str] = [
+        doc.get("metadata", {}).get("url", "")
+        for doc in documents
+        if doc.get("metadata", {}).get("url", "")
+    ]
+
+    # RL 관측공간 연동용 3종 태그
+    all_text = " ".join(d.get("content", "") for d in documents)
+    rl_risk_tags: List[str] = extract_rl_risk_tags(all_text) if all_text else []
 
     msg = _think_log("analyst", "최종 리포트 생성 착수")
-    risk_summary = ", ".join(risk_tags) if risk_tags else "없음"
+    risk_summary = ", ".join(general_risk_tags) if general_risk_tags else "없음"
 
     sys = SystemMessage(
         content=(
             "당신은 전문 금융 투자 애널리스트입니다. "
             "제공 컨텍스트가 빈약하면 그 한계를 명시하고, "
-            "있을 경우 시장 동향·기회·리스크를 한국어로 간결히 정리하세요."
+            "있을 경우 시장 동향·기회·리스크를 한국어로 간결히 정리하세요. "
+            "분석 내용에 근거 문서의 출처 URL이 있으면 반드시 인용하세요."
         )
     )
     hum = HumanMessage(
@@ -360,11 +375,20 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     except openai.OpenAIError as e:
         logger.error("analyst: LLM 호출 실패 (%s).", e)
         response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}" + DISCLAIMER
+
     tail = _think_log(
         "analyst",
-        f"응답 길이={len(response)}자 (미리보기: {response[:80]}…)",
+        f"응답 길이={len(response)}자 (출처={len(sources)}개, RL태그={rl_risk_tags or '없음'})",
     )
+
+    # reasoning_trace: 현재까지 누적된 THINK 로그 + 애널리스트 로그
+    prev_messages: List[str] = list(state.get("messages") or [])
+    reasoning_trace = "\n".join(prev_messages + [msg, tail])
+
     return {
         "response": response,
+        "sources": sources,
+        "reasoning_trace": reasoning_trace,
+        "risk_tags": rl_risk_tags,
         "messages": [msg, tail],
     }
