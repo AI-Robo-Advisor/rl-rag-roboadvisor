@@ -69,7 +69,9 @@ def test_research_returns_report_sources_trace_and_risk_tags() -> None:
     assert payload["status"] == "fallback"
     assert payload["report"]
     assert payload["sources"]
+    assert all(isinstance(source, str) for source in payload["sources"])
     assert payload["reasoning_trace"]
+    assert isinstance(payload["reasoning_trace"], str)
     assert payload["risk_tags"]
     assert payload["question"].startswith("금리 인하")
 

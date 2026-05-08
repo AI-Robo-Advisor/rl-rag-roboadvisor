@@ -75,22 +75,14 @@ class ResearchRequest(BaseModel):
     question: str = Field(min_length=1)
 
 
-class Source(BaseModel):
-    """Source metadata shown by the dashboard."""
-
-    title: str
-    url: str
-    published_at: str | None = None
-
-
 class ResearchResponse(BaseModel):
     """Agentic RAG response contract."""
 
     status: EndpointStatus
     question: str
     report: str
-    sources: list[Source]
-    reasoning_trace: list[str]
+    sources: list[str]
+    reasoning_trace: str
     risk_tags: list[str]
 
 

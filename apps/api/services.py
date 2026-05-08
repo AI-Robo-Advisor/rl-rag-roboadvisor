@@ -15,7 +15,6 @@ from apps.api.schemas import (
     OptimizeResponse,
     ResearchResponse,
     RiskProfile,
-    Source,
 )
 
 DEFAULT_TICKERS: list[str] = [
@@ -90,18 +89,14 @@ def build_fallback_research(question: str) -> ResearchResponse:
             "현재 응답은 LangGraph 에이전트 연결 전 fallback입니다. 질문의 핵심 위험 요인을 "
             "태그로 분류하고, 대시보드 연동을 위한 리포트 구조를 우선 제공합니다."
         ),
-        sources=[
-            Source(
-                title="MVP 로보어드바이저 명세",
-                url="https://github.com/AI-Robo-Advisor/rl-rag-roboadvisor",
-                published_at=None,
-            )
-        ],
-        reasoning_trace=[
-            "Planner: 투자 질문의 핵심 키워드를 식별했습니다.",
-            "Researcher: 실제 ChromaDB 연결 전 fallback source를 사용했습니다.",
-            "Analyst: 리스크 태그와 요약 리포트를 생성했습니다.",
-        ],
+        sources=["https://github.com/AI-Robo-Advisor/rl-rag-roboadvisor"],
+        reasoning_trace="\n".join(
+            [
+                "Planner: 투자 질문의 핵심 키워드를 식별했습니다.",
+                "Researcher: 실제 ChromaDB 연결 전 fallback source를 사용했습니다.",
+                "Analyst: 리스크 태그와 요약 리포트를 생성했습니다.",
+            ]
+        ),
         risk_tags=risk_tags,
     )
 
