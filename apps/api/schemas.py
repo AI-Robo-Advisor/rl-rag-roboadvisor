@@ -29,6 +29,15 @@ class OptimizeRequest(BaseModel):
 
     tickers: list[str] | None = Field(default=None, min_length=1)
     risk_profile: RiskProfile = "balanced"
+    risk_aversion: float | None = Field(default=None, gt=0)
+
+
+class ReturnSeries(BaseModel):
+    """Chart-ready cumulative return series."""
+
+    date: list[str]
+    portfolio: list[float]
+    benchmark: list[float]
 
 
 class OptimizeResponse(BaseModel):
@@ -40,6 +49,7 @@ class OptimizeResponse(BaseModel):
     risk_profile: RiskProfile
     expected_return: float
     expected_volatility: float
+    returns: ReturnSeries
     message: str
 
 
@@ -63,9 +73,12 @@ class ExplainResponse(BaseModel):
 
     status: EndpointStatus
     date: str | None
+    target_date: str | None
     base_value: float
     prediction: float
     feature_contributions: list[FeatureContribution]
+    feature_names: list[str]
+    shap_values: list[float]
     message: str
 
 
@@ -103,4 +116,15 @@ class BacktestResponse(BaseModel):
     metrics: dict[str, float]
     anova: list[AnovaResult]
     benchmark: str
+    dates: list[str]
+    rewards: list[float]
+    wf_cum: list[float]
+    bm_cum: list[float]
+    wf_spark: list[float]
+    sharpe_spark: list[float]
+    drawdown: list[float]
+    var_95: float
+    cvar_95: float
+    mdd: float
+    safeguard: dict[str, bool | float | str | None]
     message: str
