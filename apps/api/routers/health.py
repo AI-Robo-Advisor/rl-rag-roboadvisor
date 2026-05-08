@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from apps.api.config import settings
 from apps.api.schemas import HealthResponse
+from apps.api.services import build_module_statuses
 
 router = APIRouter(tags=["health"])
 
@@ -18,10 +19,5 @@ def health_check() -> HealthResponse:
             "port": settings.API_PORT,
             "log_level": settings.LOG_LEVEL,
         },
-        modules={
-            "data": "ready",
-            "rl": "fallback",
-            "rag": "fallback",
-            "shap": "fallback",
-        },
+        modules=build_module_statuses(),
     )
