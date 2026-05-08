@@ -1,7 +1,9 @@
-from dotenv import load_dotenv
 import os
 
+from dotenv import load_dotenv
+
 load_dotenv()
+
 
 class Settings:
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
@@ -13,5 +15,6 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
     BOK_API_KEY: str = os.getenv("BOK_API_KEY", "")
+
 
 settings = Settings()

@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.worktrees/
 
 # Environment variables
 .env
@@ -38,4 +39,3 @@ chroma_db/
 
 CLAUDE.local.md
 prompt.txt
-

@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from curl_cffi import requests as cf_requests
+import yfinance.cache as yf_cache
 from pykrx import stock
 
 from config import (
@@ -30,6 +30,35 @@ from src.data.indicators import build_features as _build_features
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _drop_invalid_yfinance_basic_cookie() -> None:
+    """문자열로 저장된 yfinance basic 쿠키 캐시를 삭제한다.
+
+    yfinance 0.2.x 일부 조합에서 curl_cffi 쿠키 이름만 캐시에 저장되면
+    다음 실행부터 yfinance 내부의 cookie.name 접근에서 실패한다.
+    """
+    try:
+        cookie_cache = yf_cache.get_cookie_cache()
+        cookie_info = cookie_cache.lookup("basic")
+    except Exception as exc:  # yfinance private cache 방어용
+        logger.debug("yfinance 쿠키 캐시 확인 생략: %s", exc)
+        return
+
+    if not isinstance(cookie_info, dict):
+        return
+
+    cookie = cookie_info.get("cookie")
+    if cookie is None or (hasattr(cookie, "name") and hasattr(cookie, "value")):
+        return
+
+    try:
+        cookie_cache.store("basic", None)
+    except Exception as exc:  # yfinance private cache 방어용
+        logger.debug("손상된 yfinance 쿠키 캐시 삭제 실패: %s", exc)
+        return
+
+    logger.info("손상된 yfinance basic 쿠키 캐시 삭제 완료")
 
 
 def collect_global(
@@ -50,8 +79,7 @@ def collect_global(
     Raises:
         ValueError: 수집 결과가 비어 있을 때.
     """
-    # curl_cffi로 Chrome 브라우저 지문 모방 → Cloudflare 레이트 리밋 우회
-    session = cf_requests.Session(impersonate="chrome")
+    _drop_invalid_yfinance_basic_cookie()
     # yfinance history()의 end는 exclusive → +1일로 지정해 pykrx와 동일한 inclusive 범위 확보
     end_exclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -61,7 +89,7 @@ def collect_global(
         adj = pd.Series(dtype=float)
         for attempt in range(1, 4):  # 최대 3회 재시도
             try:
-                t = yf.Ticker(ticker, session=session)
+                t = yf.Ticker(ticker)
                 hist = t.history(start=start, end=end_exclusive, auto_adjust=False)
                 if not hist.empty:
                     adj = hist["Adj Close"].rename(ticker)
