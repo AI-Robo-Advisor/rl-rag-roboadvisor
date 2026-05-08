@@ -99,7 +99,12 @@ def test_zero_action_converts_to_equal_weights(sample_data):
 def test_transaction_cost_is_applied(sample_data):
     returns_df, features_df, _ = sample_data
 
-    env = PortfolioEnv(returns_df, features_df, lookback=30)
+    env = PortfolioEnv(
+    returns_df,
+    features_df,
+    lookback=30,
+    reward_type="return",
+    )
     env.reset()
 
     action = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -107,6 +112,7 @@ def test_transaction_cost_is_applied(sample_data):
 
     assert info["transaction_cost"] > 0
     assert np.isclose(reward, info["net_return"])
+    assert info["reward_type"] == "return"
 
 
 def test_safe_guard_triggers_when_mdd_exceeds_limit(sample_data):

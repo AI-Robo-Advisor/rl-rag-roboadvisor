@@ -4,6 +4,11 @@ from gymnasium import spaces
 
 
 class PortfolioEnv(gym.Env):
+    """강화학습 기반 포트폴리오 리밸런싱 환경입니다.
+
+    로그수익률 기반의 자산 수익률을 사용하며, 행동값을 포트폴리오 비중으로
+    정규화한 뒤 거래비용, 슬리피지, MDD Safe-Guard를 반영합니다.
+    """
     def __init__(
         self, 
         returns_df, 
@@ -13,6 +18,19 @@ class PortfolioEnv(gym.Env):
         lambda_mdd=1.0,
         volatility_window=20,
         ):
+        """PortfolioEnv를 초기화합니다.
+
+        Args:
+            returns_df: 자산별 raw 로그수익률 데이터프레임입니다.
+            features_df: 정규화된 관측 피처 데이터프레임입니다.
+            lookback: 관측에 사용할 과거 수익률 윈도우 길이입니다.
+            reward_type: 사용할 보상 함수 유형입니다. "return", "sharpe", "mdd" 중 하나입니다.
+            lambda_mdd: MDD 페널티 보상에서 사용할 MDD 가중치입니다.
+            volatility_window: Sharpe 보상 계산에 사용할 변동성 추정 윈도우입니다.
+
+        Raises:
+            ValueError: 지원하지 않는 reward_type이 입력된 경우 발생합니다.
+        """
         super().__init__()
 
         valid_reward_types = {"return", "sharpe", "mdd"}
@@ -67,6 +85,14 @@ class PortfolioEnv(gym.Env):
         )
 
     def _normalize_action(self, action):
+        """행동값을 유효한 포트폴리오 비중으로 정규화합니다.
+
+        Args:
+            action: 에이전트가 출력한 자산별 행동값입니다.
+
+        Returns:
+            합이 1인 자산별 포트폴리오 비중 배열입니다.
+        """
         action = np.array(action, dtype=np.float32)
         action = np.clip(action, 0.0, 1.0)
 
@@ -76,6 +102,11 @@ class PortfolioEnv(gym.Env):
         return action / action.sum()
 
     def _get_observation(self):
+        """현재 시점의 관측값을 생성합니다.
+
+        Returns:
+            과거 수익률, 현재 비중, RSI, MACD signal을 포함한 1차원 관측 배열입니다.
+        """
         # 관측값은 정규화된 features_df만 사용
         return_cols = [f"{asset}_return" for asset in self.asset_names]
         rsi_cols = [f"{asset}_RSI" for asset in self.asset_names]
@@ -103,6 +134,18 @@ class PortfolioEnv(gym.Env):
         return obs
 
     def _calculate_reward(self, net_return, weights):
+        """설정된 reward_type에 따라 step 보상을 계산합니다.
+
+        Args:
+            net_return: 거래비용을 차감한 현재 step의 포트폴리오 로그수익률입니다.
+            weights: 현재 step에 적용된 포트폴리오 비중입니다.
+
+        Returns:
+            reward_type에 따라 계산된 보상값입니다.
+
+        Raises:
+            ValueError: 지원하지 않는 reward_type인 경우 발생합니다.
+        """
         if self.reward_type == "return":
             return net_return
 
@@ -116,6 +159,8 @@ class PortfolioEnv(gym.Env):
             if volatility < 1e-8:
                 return 0.0
 
+            # 학습용 step-level Sharpe 보상입니다.
+            # metrics.py의 연율화 Sharpe와 정의 및 해석이 다릅니다.
             return net_return / volatility
 
         if self.reward_type == "mdd":
@@ -124,6 +169,16 @@ class PortfolioEnv(gym.Env):
         raise ValueError(f"Unsupported reward_type: {self.reward_type}")
 
     def reset(self, seed=None, options=None):
+        """환경을 초기 상태로 되돌립니다.
+
+        Args:
+            seed: 난수 시드입니다.
+            options: Gymnasium reset 옵션입니다.
+
+        Returns:
+            observation: 초기 관측값입니다.
+            info: 초기 포트폴리오 상태 정보입니다.
+        """
         super().reset(seed=seed)
 
         self.current_step = self.lookback
@@ -146,6 +201,18 @@ class PortfolioEnv(gym.Env):
         return observation, info
 
     def step(self, action):
+        """환경을 한 step 진행하고 포트폴리오 상태를 갱신합니다.
+
+        Args:
+            action: 에이전트가 선택한 자산별 목표 비중입니다.
+
+        Returns:
+            observation: 다음 시점 관측값입니다.
+            reward: 현재 step에서 계산된 보상값입니다.
+            terminated: 데이터 종료 또는 Safe-Guard 발동으로 종료되었는지 여부입니다.
+            truncated: 시간 제한으로 종료되었는지 여부입니다.
+            info: 수익률, 거래비용, MDD, 포트폴리오 가치 등 부가 정보입니다.
+        """
         new_weights = self._normalize_action(action)
 
         # 실제 수익률 계산은 raw 로그수익률 returns_df 사용
@@ -158,7 +225,8 @@ class PortfolioEnv(gym.Env):
 
         net_return = gross_return - transaction_cost
 
-        self.portfolio_value *= 1.0 + net_return
+        # returns_df는 로그수익률이므로 exp(net_return)으로 복리 반영
+        self.portfolio_value *= np.exp(net_return)
         self.peak_portfolio_value = max(
             self.peak_portfolio_value,
             self.portfolio_value,
@@ -200,6 +268,7 @@ class PortfolioEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def render(self):
+        """현재 포트폴리오 상태를 콘솔에 출력합니다."""
         print(
             f"step={self.current_step}, "
             f"value={self.portfolio_value:.4f}, "
