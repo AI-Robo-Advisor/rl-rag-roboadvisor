@@ -11,4 +11,8 @@ router = APIRouter(tags=["portfolio"])
 @router.post("/optimize", response_model=OptimizeResponse)
 def optimize_portfolio(request: OptimizeRequest) -> OptimizeResponse:
     """Return normalized portfolio weights."""
-    return build_fallback_portfolio(request.tickers, request.risk_profile)
+    return build_fallback_portfolio(
+        tickers=request.tickers,
+        risk_profile=request.risk_profile,
+        risk_aversion=request.risk_aversion,
+    )
