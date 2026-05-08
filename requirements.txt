@@ -36,4 +36,4 @@ gymnasium[classic-control]==1.2.3
 stable-baselines3==2.8.0
 
 # 대시보드 차트
-streamlit-echarts>=0.6.0
+streamlit-echarts~=0.6.0

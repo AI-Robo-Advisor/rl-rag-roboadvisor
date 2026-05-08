@@ -40,7 +40,8 @@ class AgentState(TypedDict):
         plan: Planner가 만든 조사 계획.
         context: Researcher가 만든 RAG 컨텍스트 문자열.
         documents: 검색 문서 ``{"content", "metadata"}`` 리스트.
-        risk_tags: ``risk_tags`` 모듈 추출 태그.
+        risk_tags: ``risk_tags`` 모듈 추출 태그 (RAG 일반 태그).
+        rl_risk_tags: RL 관측공간 연동용 3종 태그 (규제변경·실적쇼크·급등락).
         distances: Chroma 거리 목록(문서 순). 없으면 빈 리스트.
         retry_count: Self-Correction 재검색 횟수.
         needs_research_retry: ``True``면 다음 노드가 researcher.
@@ -54,6 +55,7 @@ class AgentState(TypedDict):
     context: str
     documents: List[Dict[str, Any]]
     risk_tags: List[str]
+    rl_risk_tags: List[str]
     distances: List[float]
     retry_count: int
     needs_research_retry: bool
@@ -327,7 +329,7 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
         state: ``query``, ``context``, ``documents``, ``risk_tags`` 권장.
 
     Returns:
-        ``response`` (report), ``sources``, ``reasoning_trace``, ``risk_tags`` (3종) 및 로그 ``messages``.
+        ``response`` (report), ``sources``, ``reasoning_trace``, ``rl_risk_tags`` (3종) 및 로그 ``messages``.
     """
     query = state["query"]
     context = state.get("context") or "관련 문서 없음"
@@ -389,6 +391,6 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
         "response": response,
         "sources": sources,
         "reasoning_trace": reasoning_trace,
-        "risk_tags": rl_risk_tags,
+        "rl_risk_tags": rl_risk_tags,
         "messages": [msg, tail],
     }
