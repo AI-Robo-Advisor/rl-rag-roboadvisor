@@ -1,8 +1,13 @@
 """
 금융 뉴스 텍스트에서 리스크 태그를 추출하는 모듈.
 규칙 기반(키워드 매핑) 방식으로 리스크 유형을 분류합니다.
+
+RL 관측공간 연동용 3종 태그("규제변경" / "실적쇼크" / "급등락")와
+이를 이진 벡터로 변환하는 get_risk_vector()를 포함합니다.
 """
 from typing import Dict, List
+
+import numpy as np
 
 # 키워드 → 태그 매핑
 # 동일 태그를 가리키는 키워드를 복수로 등록할 수 있습니다.
@@ -80,6 +85,65 @@ def tag_severity(tag: str) -> str:
     if tag in _MEDIUM_TAGS:
         return "MEDIUM"
     return "LOW"
+
+
+# ─────────────────────────────────────────────
+# RL 관측공간 연동 — 3종 태그
+# ─────────────────────────────────────────────
+
+# RL 환경(trading_env.py)과 공유하는 고정 태그 순서 (변경 시 이문정과 협의 필요)
+RL_RISK_TAGS: List[str] = ["규제변경", "실적쇼크", "급등락"]
+
+_RL_KEYWORD_MAP: Dict[str, List[str]] = {
+    "규제변경": ["규제변경", "규정 변경", "규제 강화", "법 개정", "법개정", "금융 규제", "규제 개편"],
+    "실적쇼크": ["실적쇼크", "어닝쇼크", "실적 쇼크", "실적 충격", "실적 부진", "영업손실", "어닝 쇼크"],
+    "급등락":   ["급등락", "급등", "급락", "폭등", "폭락", "급변동", "급변"],
+}
+
+
+def extract_rl_risk_tags(text: str) -> List[str]:
+    """
+    RL 관측공간 연동용 3종 리스크 태그를 추출합니다.
+
+    Args:
+        text: 분석할 금융 뉴스 텍스트.
+
+    Returns:
+        감지된 태그 리스트. 원소는 RL_RISK_TAGS 내 값만 포함, 정렬됨.
+
+    Example:
+        >>> extract_rl_risk_tags("금융당국이 가상자산 규제를 강화했다.")
+        ['규제변경']
+    """
+    if not text:
+        return []
+    found: set = set()
+    for tag, keywords in _RL_KEYWORD_MAP.items():
+        if any(kw in text for kw in keywords):
+            found.add(tag)
+    return sorted(found)
+
+
+def get_risk_vector(tags: List[str]) -> np.ndarray:
+    """
+    RL 관측공간 연동용 3차원 이진 벡터를 반환합니다.
+
+    각 차원은 RL_RISK_TAGS 순서에 대응하며, 해당 태그가 있으면 1.0, 없으면 0.0입니다.
+
+    Args:
+        tags: extract_rl_risk_tags() 결과 또는 동일 형식의 태그 리스트.
+
+    Returns:
+        np.ndarray shape=(3,), dtype=float32.
+
+    Example:
+        >>> get_risk_vector(["급등락"])
+        array([0., 0., 1.], dtype=float32)
+    """
+    return np.array(
+        [1.0 if t in tags else 0.0 for t in RL_RISK_TAGS],
+        dtype=np.float32,
+    )
 
 
 def summarize_risk_profile(tags: List[str]) -> str:
