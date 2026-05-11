@@ -127,7 +127,7 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 > | `apps/dashboard/` | 플레이스홀더만 존재 |
 > | `src/data/collector.py` | ✅ 완료 — yfinance·pykrx 수집, 병합, 로그수익률 계산, parquet 저장 |
 > | `src/data/indicators.py` | ✅ 완료 — RSI(14), MACD(12/26/9) 계산, Z-score 정규화, features.parquet 저장 |
-> | `data/raw/prices.parquet` | ✅ 생성됨 (10자산, 2020-01-01~2025-12-31) |
-> | `data/processed/returns.parquet` | ✅ 생성됨 (~1423행, 10열, raw 로그수익률) |
-> | `data/processed/features.parquet` | ✅ 생성됨 (~1390행, 40열, Z-score 정규화) |
+> | `data/raw/prices.parquet` | ✅ 생성됨 (10자산, 2018-01-02~2025-12-30, 1899행) |
+> | `data/processed/returns.parquet` | ✅ 생성됨 (1898행, 10열, raw 로그수익률) |
+> | `data/processed/features.parquet` | ✅ 생성됨 (1865행, 40열, Z-score 정규화) |
 > | `src/agent/`, `src/rl/` | 미구현 (개발 예정) |

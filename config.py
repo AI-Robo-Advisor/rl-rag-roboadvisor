@@ -4,7 +4,7 @@
 
 TICKERS_GLOBAL: list[str] = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ"]
 TICKERS_KR: list[str]     = ["069500", "114260"]
-START_DATE: str            = "2020-01-01"
+START_DATE: str            = "2018-01-01"
 END_DATE: str              = "2025-12-31"
 
 DATA_RAW_DIR: str          = "data/raw/"

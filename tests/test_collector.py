@@ -7,6 +7,9 @@ import yfinance.cache as yf_cache
 
 from src.data import collector
 
+EXPECTED_GLOBAL_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ"]
+EXPECTED_KR_TICKERS = ["069500", "114260"]
+
 
 class _FakeTicker:
     seen_sessions: list[object] = []
@@ -58,3 +61,11 @@ def test_collect_global_drops_invalid_yfinance_basic_cookie(monkeypatch) -> None
     collector.collect_global(["SPY"], "2024-01-01", "2024-01-03")
 
     assert cache.stored == [("basic", None)]
+
+
+def test_collector_uses_final_selected_dataset_config() -> None:
+    """collector 기본 설정은 최종 데이터 선정 문서의 자산과 기간을 따라야 한다."""
+    assert collector.TICKERS_GLOBAL == EXPECTED_GLOBAL_TICKERS
+    assert collector.TICKERS_KR == EXPECTED_KR_TICKERS
+    assert collector.START_DATE == "2018-01-01"
+    assert collector.END_DATE == "2025-12-31"
