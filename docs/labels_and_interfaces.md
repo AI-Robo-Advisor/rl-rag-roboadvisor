@@ -12,19 +12,53 @@
 ## 1. 시장 국면(Market Regime) 레이블
 
 **정의 위치**: `src/rl/anova.py` — `_REGIME_SLICES`  
-**활용 범위**: ANOVA 분석 전용 (날짜 기반 슬라이싱)  
+**데이터 파일**: `data/processed/regime_labels.csv` (별도 파일, features.parquet에 컬럼 추가 안 함)  
+**활용 범위**: ANOVA 분석 + SHAP 분석 전용  
 **ANOVA 검증 3**: regime × strategy **Two-way ANOVA** — Factor 1로 사용  
-**RL 관측공간 투입 금지**: 사후 라벨링이므로 미래 정보 누수에 해당
+**RL 관측공간 투입 금지**: 사후 라벨링(사후 정답지)이므로 미래 정보 누수에 해당
 
-| 레이블 | 기간 | 설명 | 데이터 위치 |
+| 레이블 | 기간 | 설명 | ANOVA 위치 |
 |--------|------|------|------------|
 | `rate_hike` | 2022-01-01 ~ 2022-12-31 | 금리 급등, 주식·채권 동반 하락 | OOS — W1 테스트 구간 |
 | `bull` | 2023-01-01 ~ 2024-12-31 | 회복장 + AI 랠리 (2년 합산) | OOS — W2·W3 테스트 구간 |
-| `crisis` | 2020-02-01 ~ 2020-05-31 | 코로나 폭락 | in-sample (equal-weight fallback 사용) |
+| `crisis` | 2020-02-01 ~ 2020-05-31 | 코로나 폭락 | in-sample (equal-weight fallback) |
 
 > **`rate_hike`가 이 프로젝트의 핵심 OOS 스트레스 구간**  
 > W1 모델(학습 2018~2021)이 금리 인상 패턴을 본 적 없는 상태에서 2022년을 테스트.  
 > `crisis`(코로나)는 전체 학습 데이터에 포함(in-sample)이므로 backtest CSV에 없고, equal-weight로 대체 계산.
+
+### regime_labels.csv 포맷
+
+```
+date,regime
+2018-01-03,normal
+...
+2020-02-20,crisis
+2020-02-21,crisis
+...
+2020-05-31,crisis
+2022-01-03,rate_hike
+...
+2022-12-30,rate_hike
+2023-01-02,bull
+...
+2024-12-31,bull
+```
+
+### 데이터 파이프라인 내 위치
+
+```
+[returns/features.parquet 생성]  ← 박지민
+        ↓
+[regime_labels.csv 생성]          ← 날짜 기반 생성 (강유영, src/rl/anova.py)
+        ↓
+[RL 학습] features.parquet만 사용  ← regime 레이블 투입 안 함
+        ↓
+[백테스트] PPO 결정 + 수익률 기록
+        ↓
+[ANOVA]  backtest 결과에 regime JOIN → Two-way 분석
+[SHAP]   crisis 날짜만 필터링 → 위기 구간 피처 중요도 분석
+```
 
 ---
 

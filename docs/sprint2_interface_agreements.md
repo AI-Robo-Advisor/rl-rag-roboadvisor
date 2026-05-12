@@ -102,33 +102,46 @@ result = calculate_all_metrics(returns, benchmark)
 
 #### Q2. ANOVA 결과 구조가 뭐야?
 
-**제안하는 출력 포맷** (`src/rl/anova.py`에서 반환):
+**확정된 출력 포맷** (`src/rl/anova.py` 구현 완료 · Sprint 3 기준):
+
+`BacktestResponse.anova`는 **`list[AnovaResult]`** (3개 고정).  
+상세 필드 정의 → `docs/api_spec.md` Section 4 `AnovaResult` 참고.
 
 ```python
+# 검증 1·2: One-way ANOVA (공통 구조)
 {
-    "f_stat":     float,   # F-통계량
-    "p_value":    float,   # p-value (< 0.05이면 유의미한 차이)
-    "eta_squared": float,  # 효과 크기 (η²)
-    "tukey_hsd":  [        # 사후검정 쌍별 비교
-        {
-            "group1": str,   # e.g. "PPO-return"
-            "group2": str,   # e.g. "PPO-sharpe"
-            "meandiff": float,
-            "p_adj": float,
-            "reject": bool,
-        },
+    "name":        str,    # "reward_function_comparison" | "strategy_comparison"
+    "f_statistic": float,  # F-통계량
+    "p_value":     float,
+    "eta_squared": float,
+    "post_hoc": [          # Tukey HSD — p < 0.05 집단만 수행
+        {"group1": str, "group2": str, "meandiff": float, "p_adj": float, "reject": bool},
         ...
     ],
-    "groups": {             # 그룹별 기술통계
-        "PPO-return":  {"mean": float, "std": float, "n": int},
-        "PPO-sharpe":  {"mean": float, "std": float, "n": int},
-        "PPO-mdd":     {"mean": float, "std": float, "n": int},
-    }
+}
+
+# 검증 3: Two-way ANOVA (regime × strategy) — 추가 필드 포함
+{
+    "name":        "market_regime_comparison",
+    "f_statistic": float,  # regime 주효과 F
+    "p_value":     float,
+    "eta_squared": float,
+    "post_hoc":    [...],
+    "interaction": {       # regime × strategy 교호작용
+        "f_statistic": float,
+        "p_value":     float,
+        "significant": bool,
+    },
+    "strategy_effect": {   # strategy 주효과
+        "f_statistic": float,
+        "p_value":     float,
+    },
 }
 ```
 
-> anova.py 구현 담당이 강유영이므로 위 포맷대로 구현 예정.  
-> 박지민은 FastAPI `/backtest` 응답에 `metrics`와 `anova` 두 key를 포함시켜 줄 것.
+> 박지민은 FastAPI `/backtest` 응답에 `metrics`와 `anova` 두 key를 포함시켜 줄 것.  
+> `anova`는 단일 dict가 아니라 **list 3개** 임에 주의.  
+> `schemas.py`의 `AnovaResult`에 `interaction`, `strategy_effect` Optional 필드 추가 필요 (박지민 담당).
 
 ---
 
