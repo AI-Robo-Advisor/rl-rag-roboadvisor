@@ -116,7 +116,7 @@ def run_mvo(
     weight_map: dict[pd.Timestamp, np.ndarray] = {}
     for date in rebal_dates:
         # 해당 날짜까지의 최근 LOOKBACK 거래일 창
-        history = returns.loc[:date].iloc[-LOOKBACK:]
+        history = returns.loc[:date].iloc[:-1].iloc[-LOOKBACK:]
         if len(history) < 30:
             weight_map[date] = np.ones(n_assets) / n_assets
             logger.debug("데이터 부족 (%s, %d행) — equal-weight", date.date(), len(history))

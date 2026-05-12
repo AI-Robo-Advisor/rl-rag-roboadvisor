@@ -135,13 +135,13 @@ def _run_model(
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, _, terminated, truncated, info = env.step(action)
-            portfolio_returns.append(float(info.get("portfolio_return", 0.0)))
+            portfolio_returns.append(float(info.get("net_return", 0.0)))
             weight_rows.append(
                 info.get("weights", np.ones(n_assets) / n_assets)
             )
             done = terminated or truncated
 
-        idx = returns.index[:len(portfolio_returns)]
+        idx = returns.index[env.lookback : env.lookback + len(portfolio_returns)]
         return (
             pd.Series(portfolio_returns, index=idx),
             pd.DataFrame(weight_rows, index=idx, columns=returns.columns),
@@ -307,7 +307,7 @@ def run_stress_test(reward: str = "return") -> dict[str, Any]:
     stress_feat = _slice(features, STRESS_START, STRESS_END)
     bench = _benchmark(stress_ret)
 
-    model_path = MODELS_DIR / f"ppo_{reward}_final.zip"
+    model_path = MODELS_DIR / f"ppo_{reward}_w1.zip"
     portfolio, _ = _run_model(stress_ret, stress_feat, model_path, reward)
 
     common = portfolio.index.intersection(bench.index)

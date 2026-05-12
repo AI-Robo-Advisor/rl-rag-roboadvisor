@@ -4,17 +4,17 @@
     1. reward_function_comparison: 보상함수 3종(return/sharpe/mdd) 성과 비교 (One-way)
     2. strategy_comparison: PPO vs MVO vs 동일비중 비교 (One-way)
     3. market_regime_comparison: 국면(regime) × 전략(strategy) 성과 비교 (Two-way)
-       - Factor 1: rate_hike / bull / crisis
+       - Factor 1: rate_hike / bull  (OOS 구간만 — 균형 2×3 설계)
        - Factor 2: PPO / MVO / EW
        - 교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증
 
 국면 정의 (Walk-Forward 윈도우 기반):
     rate_hike = 2022        (W1 test, 금리 급등·주식채권 동반 하락)
     bull      = 2023 + 2024 (W2·W3 test, 회복장·AI 랠리)
-    crisis    = 2020-02-01 ~ 2020-05-31 (코로나 폭락, in-sample 위기 국면)
 
-코로나(2020)는 전체 학습 데이터에 포함(in-sample)되어 있고,
-실질적 OOS 스트레스 구간은 2022 금리 충격(backtest.py 참고)이다.
+crisis(코로나 2020-02~05)는 in-sample 구간이라 backtest CSV에 PPO/MVO 결과가 없다.
+해당 기간에 EW만 존재해 결측 셀이 생기므로 Two-way ANOVA에서 제외한다.
+crisis 구간 분석은 SHAP(shap.py)에서 별도 수행한다.
 """
 from __future__ import annotations
 
@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path("data/results")
 
-# 국면별 날짜 구간 (multiple slices → concat)
+# OOS 국면별 날짜 구간 — PPO/MVO/EW 모두 데이터가 있는 구간만 포함 (균형 설계)
+# crisis(코로나 2020)는 in-sample이라 backtest CSV 없음 → SHAP 전용으로 분리
 _REGIME_SLICES: dict[str, list[tuple[str, str]]] = {
     "rate_hike": [("2022-01-01", "2022-12-31")],
     "bull":      [("2023-01-01", "2023-12-31"), ("2024-01-01", "2024-12-31")],
-    "crisis":    [("2020-02-01", "2020-05-31")],
 }
 
 
@@ -232,11 +232,12 @@ def run_strategy_comparison(returns: pd.DataFrame) -> dict:
 def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
     """실험 3: 국면(regime) × 전략(strategy) Two-way ANOVA.
 
-    Factor 1 (regime): rate_hike / bull / crisis
+    Factor 1 (regime): rate_hike / bull  (OOS 구간만 — 균형 2×3 설계)
     Factor 2 (strategy): PPO / MVO / EW
     교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증.
 
-    crisis(코로나 구간)는 backtest CSV에 없으므로 equal-weight fallback 사용.
+    crisis(코로나 2020)는 in-sample이라 PPO/MVO backtest 결과가 없으므로
+    _REGIME_SLICES에서 제외한다. crisis 분석은 SHAP(shap.py)에서 수행한다.
 
     Args:
         returns: 전체 기간 raw 로그수익률 DataFrame.
