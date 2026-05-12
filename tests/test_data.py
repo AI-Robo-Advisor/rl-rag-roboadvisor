@@ -25,6 +25,8 @@ PRICES_PATH = Path("data/raw/prices.parquet")
 EXPECTED_TICKERS: list[str] = [
     "SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"
 ]
+EXPECTED_START_DATE = pd.Timestamp("2018-01-01")
+EXPECTED_END_DATE = pd.Timestamp("2025-12-31")
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +66,15 @@ def test_parquet_loadable() -> None:
 
 
 def test_returns_shape(returns_df: pd.DataFrame) -> None:
-    """행 수 > 1400, 열 수 == 10.
+    """행 수 > 1800, 열 수 == 10.
 
     Note:
-        CLAUDE.local.md 추정치는 1650~1700행이나, US-KR inner join에서
-        한국 공휴일(추석·설날 등) 차이로 실제 ~1423행이 산출된다.
-        inner join 명세는 유지하되 임계값을 1400으로 조정한다.
+        2018~2025 기간을 US-KR inner join으로 병합하면 한국 공휴일
+        차이로 실제 1898행이 산출된다. inner join 명세는 유지하되
+        재수집 시 휴장일 차이를 고려해 임계값을 1800으로 둔다.
     """
-    assert len(returns_df) > 1400, (
-        f"행 수 부족: {len(returns_df)}행 (inner join 후 ~1423행이 정상)"
+    assert len(returns_df) > 1800, (
+        f"행 수 부족: {len(returns_df)}행 (inner join 후 ~1898행이 정상)"
     )
     assert len(returns_df.columns) == 10, (
         f"열 수 불일치: {len(returns_df.columns)}열"
@@ -110,6 +112,19 @@ def test_no_duplicate_dates(returns_df: pd.DataFrame) -> None:
     """중복 날짜가 없어야 한다."""
     duplicates = int(returns_df.index.duplicated().sum())
     assert duplicates == 0, f"중복 날짜 {duplicates}개 발견"
+
+
+def test_returns_cover_final_selected_period(returns_df: pd.DataFrame) -> None:
+    """returns.parquet은 최종 선정된 2018~2025 데이터 기간을 포함해야 한다."""
+    first_date = returns_df.index.min()
+    last_date = returns_df.index.max()
+
+    assert first_date <= EXPECTED_START_DATE + pd.Timedelta(days=10), (
+        f"시작일이 최종 수집 기간과 다름: {first_date.date()}"
+    )
+    assert last_date >= EXPECTED_END_DATE - pd.Timedelta(days=10), (
+        f"종료일이 최종 수집 기간과 다름: {last_date.date()}"
+    )
 
 
 def test_features_shape(returns_df: pd.DataFrame, features_df: pd.DataFrame) -> None:
