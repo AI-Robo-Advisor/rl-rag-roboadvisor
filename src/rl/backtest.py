@@ -1,4 +1,4 @@
-"""Walk-Forward 백테스트 프레임워크 + 코로나 구간 스트레스 테스트.
+"""Walk-Forward 백테스트 프레임워크 + 금리 충격 구간 스트레스 테스트.
 
 Walk-Forward 윈도우 4개(W1~W3 + Final Holdout):
     W1:    train 2018~2021 / test 2022 (금리 충격)
@@ -6,9 +6,12 @@ Walk-Forward 윈도우 4개(W1~W3 + Final Holdout):
     W3:    train 2020~2023 / test 2024 (AI 랠리)
     Final: train 2021~2024 / test 2025 (최신 구간)
 
-스트레스 테스트: 코로나 구간(2020-02-01 ~ 2020-05-31)을 OOS로 활용.
-Final Holdout 모델(학습 2021~2024)이 코로나 미학습 구간에서 Safe-Guard가
-정상 작동하는지 검증한다.
+스트레스 테스트: 2022년 금리 충격 구간(2022-01-01 ~ 2022-12-31)을 OOS로 활용.
+W1 모델(학습 2018~2021)이 금리 인상 패턴을 학습하지 않은 상태에서
+Safe-Guard가 정상 작동하는지 검증한다.
+
+코로나(2020)는 전체 학습 데이터에 포함(in-sample)되어 있어,
+W1 기준 진짜 OOS 위기 구간은 2022 금리 충격이다.
 
 Safe-Guard 임계값 15% 근거:
     코로나 KOSPI MDD 최대 38% — 15%는 그 절반 이하의 조기 경보 수준.
@@ -62,8 +65,8 @@ MODELS_DIR = Path("models")
 
 BENCHMARK_TICKER = "SPY"
 SAFEGUARD_THRESHOLD: float = 0.15
-STRESS_START = "2020-02-01"
-STRESS_END = "2020-05-31"
+STRESS_START = "2022-01-01"
+STRESS_END   = "2022-12-31"
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -287,10 +290,11 @@ def run_all_rewards() -> dict[str, pd.DataFrame]:
 
 
 def run_stress_test(reward: str = "return") -> dict[str, Any]:
-    """코로나 구간(2020-02-01 ~ 2020-05-31) OOS 스트레스 테스트.
+    """2022년 금리 충격 구간(2022-01-01 ~ 2022-12-31) OOS 스트레스 테스트.
 
-    Final Holdout 모델(학습 2021~2024)이 코로나를 학습하지 않았으므로
-    가장 순수한 OOS 검증이 가능하다.
+    W1 모델(학습 2018~2021)이 금리 인상 패턴을 학습하지 않았으므로
+    가장 순수한 OOS 검증이 가능하다. 코로나(2020)는 in-sample이므로
+    2022 금리 충격이 이 프로젝트의 실질적 스트레스 구간이다.
 
     Args:
         reward: 사용할 모델의 보상함수 종류.

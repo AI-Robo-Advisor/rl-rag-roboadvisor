@@ -3,12 +3,15 @@
 실험 구성:
     1. reward_function_comparison: 보상함수 3종(return/sharpe/mdd) 성과 비교
     2. strategy_comparison: PPO vs MVO vs 동일비중 비교
-    3. market_regime_comparison: 시장 국면별(bull/bear/crisis) 성과 비교
+    3. market_regime_comparison: 시장 국면별(rate_hike/bull/crisis) 성과 비교
 
 국면 정의 (Walk-Forward 윈도우 기반):
-    bear   = 2022        (W1 test, 금리 인상기)
-    bull   = 2023 + 2024 (W2·W3 test, 회복장·AI 랠리)
-    crisis = 2020-02-01 ~ 2020-05-31 (코로나 폭락, OOS 스트레스 구간)
+    rate_hike = 2022        (W1 test, 금리 급등·주식채권 동반 하락)
+    bull      = 2023 + 2024 (W2·W3 test, 회복장·AI 랠리)
+    crisis    = 2020-02-01 ~ 2020-05-31 (코로나 폭락, in-sample 위기 국면)
+
+코로나(2020)는 전체 학습 데이터에 포함(in-sample)되어 있고,
+실질적 OOS 스트레스 구간은 2022 금리 충격(backtest.py 참고)이다.
 """
 from __future__ import annotations
 
@@ -29,9 +32,9 @@ RESULTS_DIR = Path("data/results")
 
 # 국면별 날짜 구간 (multiple slices → concat)
 _REGIME_SLICES: dict[str, list[tuple[str, str]]] = {
-    "bear":   [("2022-01-01", "2022-12-31")],
-    "bull":   [("2023-01-01", "2023-12-31"), ("2024-01-01", "2024-12-31")],
-    "crisis": [("2020-02-01", "2020-05-31")],
+    "rate_hike": [("2022-01-01", "2022-12-31")],
+    "bull":      [("2023-01-01", "2023-12-31"), ("2024-01-01", "2024-12-31")],
+    "crisis":    [("2020-02-01", "2020-05-31")],
 }
 
 
@@ -231,7 +234,7 @@ def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
 
     groups: dict[str, pd.Series] = {}
     for regime, slices in _REGIME_SLICES.items():
-        # bear/bull은 backtest 기간(2022~2025)에 포함 → ppo_all 사용
+        # rate_hike/bull은 backtest 기간(2022~2025)에 포함 → ppo_all 사용
         # crisis(2020)는 backtest 기간 외 → equal-weight로 fallback
         source = ppo_all if regime != "crisis" else ew
         groups[regime] = _regime_series(slices, source)

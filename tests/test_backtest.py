@@ -203,16 +203,16 @@ def test_run_stress_test_returns_required_keys(wide_data, tmp_path, monkeypatch)
     assert required <= set(result)
 
 
-def test_run_stress_test_period_is_corona(wide_data, tmp_path, monkeypatch):
-    """period가 2020-02-01 ~ 2020-05-31 코로나 구간이어야 한다."""
+def test_run_stress_test_period_is_rate_hike(wide_data, tmp_path, monkeypatch):
+    """period가 2022-01-01 ~ 2022-12-31 금리 충격 구간이어야 한다."""
     import src.rl.backtest as bt
 
     monkeypatch.setattr(bt, "_load_data", lambda: wide_data)
     monkeypatch.setattr(bt, "MODELS_DIR", tmp_path)
 
     result = run_stress_test(reward="return")
-    assert result["period"]["start"] == "2020-02-01"
-    assert result["period"]["end"] == "2020-05-31"
+    assert result["period"]["start"] == "2022-01-01"
+    assert result["period"]["end"] == "2022-12-31"
 
 
 def test_run_stress_test_arrays_same_length(wide_data, tmp_path, monkeypatch):
