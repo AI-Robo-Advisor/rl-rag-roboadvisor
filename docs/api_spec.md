@@ -337,7 +337,7 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
 | `final` | 2021-01-01 ~ 2024-12-31 | 2025-01-01 ~ 2025-12-31 | 최신 구간 |
 
 > `window` 파라미터는 Sprint 3에서 추가. Sprint 2 현재는 파라미터 무시하고 전체 기간 데이터 반환.  
-> 모델 파일 네이밍: `models/ppo_{reward}_{window}.zip` (예: `ppo_sharpe_w3.zip`), 총 12개 (3보상 × 4윈도우).
+> 모델 파일 네이밍·Safe-Guard 임계값 상세 → `docs/labels_and_interfaces.md` 3-3·3-5 참고.
 
 #### 응답 `200 OK`
 
@@ -480,7 +480,7 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
 | `triggered_at` | `str \| null` | 발동 날짜 (YYYY-MM-DD), 미발동 시 null |
 | `current_drawdown` | `float` | 현재 낙폭 (양수) |
 
-> Safe-Guard 임계값: MDD ≥ 15%. 코로나 KOSPI MDD 38%의 절반 이하(조기 경보 기준).
+> Safe-Guard 임계값·발동·해제 조건 상세 → `docs/labels_and_interfaces.md` 3-5 참고.
 
 #### ANOVA 입력 파일 (이문정 → 강유영)
 

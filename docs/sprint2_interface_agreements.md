@@ -138,21 +138,8 @@ result = calculate_all_metrics(returns, benchmark)
 
 #### 강유영 쪽 구현 현황
 
-`src/agent/risk_tags.py`에 RL 전용 3-태그 시스템 이미 구현됨:
-
-```python
-RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
-
-def get_risk_vector(tags: List[str]) -> np.ndarray:
-    """shape=(3,), dtype=float32, 태그 존재 시 1.0, 없으면 0.0"""
-```
-
-**출력 예시**:
-```python
-get_risk_vector(["급등락", "실적쇼크"])
-# → array([0., 1., 1.], dtype=float32)
-# 순서: [규제변경, 실적쇼크, 급등락]
-```
+`src/agent/risk_tags.py`에 RL 전용 3-태그 시스템 이미 구현됨.  
+태그 종류·순서·벡터 변환 예시 → `docs/labels_and_interfaces.md` 2-2 참고.
 
 #### 이문정에게 물어볼 것
 
