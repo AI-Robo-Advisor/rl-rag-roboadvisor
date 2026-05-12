@@ -438,7 +438,7 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
 |--------|------|------|
 | `reward_function_comparison` | 보상함수 3종(return·sharpe·mdd) 성과 차이 검증 | 강유영 (`anova.py`) |
 | `strategy_comparison` | PPO vs MVO vs 동일비중 성과 차이 검증 | 강유영 (`anova.py`) |
-| `market_regime_comparison` | bull·bear·crisis 국면별 성과 차이 검증 | 강유영 (`anova.py`) |
+| `market_regime_comparison` | bull·rate_hike·crisis 국면별 성과 차이 검증 | 강유영 (`anova.py`) |
 
 각 `AnovaResult` 필드:
 
