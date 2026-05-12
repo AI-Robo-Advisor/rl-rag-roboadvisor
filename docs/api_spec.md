@@ -388,9 +388,9 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
       "p_value": 0.096,
       "eta_squared": 0.11,
       "post_hoc": [
-        {"group1": "bull", "group2": "bear",  "meandiff": 0.042, "p_adj": 0.071, "reject": false},
-        {"group1": "bull", "group2": "crisis","meandiff": 0.087, "p_adj": 0.013, "reject": true},
-        {"group1": "bear", "group2": "crisis","meandiff": 0.045, "p_adj": 0.102, "reject": false}
+        {"group1": "bull",      "group2": "rate_hike", "meandiff": 0.042, "p_adj": 0.071, "reject": false},
+        {"group1": "bull",      "group2": "crisis",    "meandiff": 0.087, "p_adj": 0.013, "reject": true},
+        {"group1": "rate_hike", "group2": "crisis",    "meandiff": 0.045, "p_adj": 0.102, "reject": false}
       ]
     }
   ],
