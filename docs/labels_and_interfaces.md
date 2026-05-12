@@ -123,11 +123,12 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 | 구성 요소 | 차원 | 내용 |
 |----------|------|------|
 | 과거 수익률 윈도우 | `lookback × n_assets` | `features_df`의 `{ticker}_return` (lookback=30 기본) |
+| 현재 포트폴리오 비중 | `n_assets` | 이전 step의 `weights` (env 내부 상태) |
 | RSI | `n_assets` | `features_df`의 `{ticker}_RSI` |
 | MACD signal | `n_assets` | `features_df`의 `{ticker}_MACD_signal` |
-| **합계** | `(lookback + 2) × n_assets` | → `(30 + 2) × 10 = 320` 차원 |
+| **합계** | `(lookback + 3) × n_assets` | → `(30 + 3) × 10 = 330` 차원 |
 
-> 현재 코드 기준 `obs_dim = (lookback + 3) * n_assets` (weights 포함 시 +1)  
+> `obs_dim = (lookback + 3) * n_assets` (`env.py:71`)  
 > features_df 컬럼 네이밍: `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD_signal`
 
 **액션 공간**: `Box(low=0.0, high=1.0, shape=(n_assets,))` — softmax 정규화 후 포트폴리오 비중으로 사용
