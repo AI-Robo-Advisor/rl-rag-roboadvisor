@@ -214,7 +214,7 @@ def run_strategy_comparison(returns: pd.DataFrame) -> dict:
 
 
 def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
-    """실험 3: 시장 국면별(bull / bear / crisis) PPO 성과 비교.
+    """실험 3: 시장 국면별(bull / rate_hike / crisis) PPO 성과 비교.
 
     각 국면의 수익률은 backtest_return.csv에서 날짜로 슬라이싱.
     crisis(코로나 구간)는 backtest CSV에 없으므로 equal-weight 사용.

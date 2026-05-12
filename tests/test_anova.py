@@ -187,7 +187,7 @@ def test_run_market_regime_comparison_structure(full_returns, tmp_path, monkeypa
     result = run_market_regime_comparison(full_returns)
     assert result["name"] == "market_regime_comparison"
     assert "p_value" in result
-    # bull/bear/crisis → 3쌍
+    # bull/rate_hike/crisis → 3쌍
     assert len(result["post_hoc"]) == 3
 
 
