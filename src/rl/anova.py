@@ -1,9 +1,12 @@
 """ANOVA 3종 실험 + Tukey HSD 사후 검정.
 
 실험 구성:
-    1. reward_function_comparison: 보상함수 3종(return/sharpe/mdd) 성과 비교
-    2. strategy_comparison: PPO vs MVO vs 동일비중 비교
-    3. market_regime_comparison: 시장 국면별(rate_hike/bull/crisis) 성과 비교
+    1. reward_function_comparison: 보상함수 3종(return/sharpe/mdd) 성과 비교 (One-way)
+    2. strategy_comparison: PPO vs MVO vs 동일비중 비교 (One-way)
+    3. market_regime_comparison: 국면(regime) × 전략(strategy) 성과 비교 (Two-way)
+       - Factor 1: rate_hike / bull / crisis
+       - Factor 2: PPO / MVO / EW
+       - 교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증
 
 국면 정의 (Walk-Forward 윈도우 기반):
     rate_hike = 2022        (W1 test, 금리 급등·주식채권 동반 하락)
@@ -124,6 +127,19 @@ def _slice_series(series: pd.Series, slices: list[tuple[str, str]]) -> pd.Series
     return pd.concat(parts) if parts else pd.Series(dtype=float)
 
 
+def _dummy_two_way() -> dict:
+    """Two-way ANOVA 데이터 부족·오류 시 반환하는 더미 결과."""
+    return {
+        "name": "market_regime_comparison",
+        "f_statistic": 0.0,
+        "p_value": 1.0,
+        "eta_squared": 0.0,
+        "post_hoc": [],
+        "interaction": {"f_statistic": 0.0, "p_value": 1.0, "significant": False},
+        "strategy_effect": {"f_statistic": 0.0, "p_value": 1.0},
+    }
+
+
 # ── 공개 API ──────────────────────────────────────────────────────────────────
 
 def run_anova(experiment: str, groups: dict[str, pd.Series]) -> dict:
@@ -214,32 +230,108 @@ def run_strategy_comparison(returns: pd.DataFrame) -> dict:
 
 
 def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
-    """실험 3: 시장 국면별(bull / rate_hike / crisis) PPO 성과 비교.
+    """실험 3: 국면(regime) × 전략(strategy) Two-way ANOVA.
 
-    각 국면의 수익률은 backtest_return.csv에서 날짜로 슬라이싱.
-    crisis(코로나 구간)는 backtest CSV에 없으므로 equal-weight 사용.
+    Factor 1 (regime): rate_hike / bull / crisis
+    Factor 2 (strategy): PPO / MVO / EW
+    교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증.
+
+    crisis(코로나 구간)는 backtest CSV에 없으므로 equal-weight fallback 사용.
 
     Args:
         returns: 전체 기간 raw 로그수익률 DataFrame.
 
     Returns:
-        run_anova() 포맷 dict.
+        name, f_statistic(regime 주효과), p_value, eta_squared, post_hoc,
+        interaction(교호작용), strategy_effect(strategy 주효과)를 포함한 dict.
     """
-    # PPO 결과 로드 (없으면 equal-weight)
+    # ── 전략별 전체 기간 수익률 ───────────────────────────────────────────────
     ppo_all = _load_backtest_series("return", returns)
-    ew = returns.mean(axis=1)
 
-    def _regime_series(slices: list[tuple[str, str]], source: pd.Series) -> pd.Series:
-        return _slice_series(source, slices)
+    mvo_by_window = run_mvo_all_windows(returns, WINDOWS)
+    mvo_parts = [s for s in mvo_by_window.values() if not s.empty]
+    mvo_all = pd.concat(mvo_parts) if mvo_parts else pd.Series(dtype=float)
 
-    groups: dict[str, pd.Series] = {}
+    ew_all = returns.mean(axis=1)
+
+    strategy_sources: dict[str, pd.Series] = {
+        "PPO": ppo_all,
+        "MVO": mvo_all,
+        "EW":  ew_all,
+    }
+
+    # ── 국면 × 전략 long-format DataFrame 구성 ───────────────────────────────
+    records: list[dict] = []
     for regime, slices in _REGIME_SLICES.items():
-        # rate_hike/bull은 backtest 기간(2022~2025)에 포함 → ppo_all 사용
-        # crisis(2020)는 backtest 기간 외 → equal-weight로 fallback
-        source = ppo_all if regime != "crisis" else ew
-        groups[regime] = _regime_series(slices, source)
+        for strategy, source in strategy_sources.items():
+            segment = _slice_series(source, slices)
+            for val in segment.dropna().values:
+                records.append({"returns": float(val), "regime": regime, "strategy": strategy})
 
-    return run_anova("market_regime_comparison", groups)
+    if not records:
+        logger.warning("[market_regime_comparison] 데이터 없음 — 더미 결과 반환")
+        return _dummy_two_way()
+
+    df = pd.DataFrame(records)
+
+    if df["regime"].nunique() < 2 or df["strategy"].nunique() < 2 or len(df) < 12:
+        logger.warning("[market_regime_comparison] 집단 부족 — 더미 결과 반환")
+        return _dummy_two_way()
+
+    try:
+        from statsmodels.formula.api import ols as sm_ols
+        from statsmodels.stats.anova import anova_lm
+
+        model = sm_ols(
+            "returns ~ C(regime) + C(strategy) + C(regime):C(strategy)",
+            data=df,
+        ).fit()
+        table = anova_lm(model, typ=2)
+
+        def _safe_f(row_key: str) -> tuple[float, float]:
+            try:
+                f = float(table.loc[row_key, "F"])
+                p = float(table.loc[row_key, "PR(>F)"])
+                return (f if np.isfinite(f) else 0.0, p if np.isfinite(p) else 1.0)
+            except KeyError:
+                return (0.0, 1.0)
+
+        regime_f,   regime_p   = _safe_f("C(regime)")
+        strategy_f, strategy_p = _safe_f("C(strategy)")
+        inter_f,    inter_p    = _safe_f("C(regime):C(strategy)")
+
+        # η² — regime 주효과 기준 (SS_regime / SS_total)
+        ss_regime = float(table.loc["C(regime)", "sum_sq"]) if "C(regime)" in table.index else 0.0
+        ss_total  = float(table["sum_sq"].sum())
+        eta2 = round(ss_regime / ss_total, 6) if ss_total > 0 else 0.0
+
+        # post_hoc — regime 주효과 유의 시에만 수행
+        regime_groups = {
+            r: df[df["regime"] == r]["returns"]
+            for r in df["regime"].unique()
+        }
+        post_hoc = _tukey_post_hoc(regime_groups) if regime_p < 0.05 else []
+
+        return {
+            "name": "market_regime_comparison",
+            "f_statistic":  round(regime_f,   6),
+            "p_value":      round(regime_p,    6),
+            "eta_squared":  eta2,
+            "post_hoc":     post_hoc,
+            "interaction": {
+                "f_statistic": round(inter_f, 6),
+                "p_value":     round(inter_p, 6),
+                "significant": bool(inter_p < 0.05),
+            },
+            "strategy_effect": {
+                "f_statistic": round(strategy_f, 6),
+                "p_value":     round(strategy_p, 6),
+            },
+        }
+
+    except Exception as exc:
+        logger.error("[market_regime_comparison] Two-way ANOVA 오류: %s — 더미 반환", exc)
+        return _dummy_two_way()
 
 
 def run_all_anova(returns: pd.DataFrame) -> list[dict]:

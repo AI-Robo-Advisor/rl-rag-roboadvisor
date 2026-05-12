@@ -387,11 +387,16 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
       "f_statistic": 2.07,
       "p_value": 0.096,
       "eta_squared": 0.11,
-      "post_hoc": [
-        {"group1": "bull",      "group2": "rate_hike", "meandiff": 0.042, "p_adj": 0.071, "reject": false},
-        {"group1": "bull",      "group2": "crisis",    "meandiff": 0.087, "p_adj": 0.013, "reject": true},
-        {"group1": "rate_hike", "group2": "crisis",    "meandiff": 0.045, "p_adj": 0.102, "reject": false}
-      ]
+      "post_hoc": [],
+      "interaction": {
+        "f_statistic": 3.14,
+        "p_value": 0.021,
+        "significant": true
+      },
+      "strategy_effect": {
+        "f_statistic": 4.52,
+        "p_value": 0.011
+      }
     }
   ],
   "dates":       ["2024-01-02", "2024-01-03", "..."],
@@ -438,17 +443,19 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
 |--------|------|------|
 | `reward_function_comparison` | 보상함수 3종(return·sharpe·mdd) 성과 차이 검증 | 강유영 (`anova.py`) |
 | `strategy_comparison` | PPO vs MVO vs 동일비중 성과 차이 검증 | 강유영 (`anova.py`) |
-| `market_regime_comparison` | bull·rate_hike·crisis 국면별 성과 차이 검증 | 강유영 (`anova.py`) |
+| `market_regime_comparison` | regime × strategy Two-way ANOVA (국면·전략 주효과 + 교호작용) | 강유영 (`anova.py`) |
 
 각 `AnovaResult` 필드:
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `name` | `str` | 실험 식별자 |
-| `f_statistic` | `float` | 일원분산분석 F 통계량 |
+| `f_statistic` | `float` | F 통계량 (검증 1·2: 집단 간, 검증 3: regime 주효과) |
 | `p_value` | `float` | p-value (< 0.05 = 통계적 유의) |
 | `eta_squared` | `float` | 효과 크기 η² |
-| `post_hoc` | `list[TukeyRow]` | Tukey HSD 사후 검정 결과 |
+| `post_hoc` | `list[TukeyRow]` | Tukey HSD 사후 검정 결과 (p < 0.05일 때만 유효) |
+| `interaction` | `dict \| null` | Two-way 전용 — regime × strategy 교호작용 (`market_regime_comparison`만 존재) |
+| `strategy_effect` | `dict \| null` | Two-way 전용 — strategy 주효과 (`market_regime_comparison`만 존재) |
 
 각 `TukeyRow` 필드:
 

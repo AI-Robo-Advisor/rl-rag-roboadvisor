@@ -13,6 +13,7 @@
 
 **정의 위치**: `src/rl/anova.py` — `_REGIME_SLICES`  
 **활용 범위**: ANOVA 분석 전용 (날짜 기반 슬라이싱)  
+**ANOVA 검증 3**: regime × strategy **Two-way ANOVA** — Factor 1로 사용  
 **RL 관측공간 투입 금지**: 사후 라벨링이므로 미래 정보 누수에 해당
 
 | 레이블 | 기간 | 설명 | 데이터 위치 |

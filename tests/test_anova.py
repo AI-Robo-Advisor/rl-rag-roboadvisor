@@ -180,15 +180,22 @@ def test_run_strategy_comparison_structure(full_returns, tmp_path, monkeypatch):
 
 
 def test_run_market_regime_comparison_structure(full_returns, tmp_path, monkeypatch):
-    """market_regime_comparison 결과에 필수 키가 있어야 한다."""
+    """market_regime_comparison 결과에 Two-way ANOVA 필수 키가 있어야 한다."""
     import src.rl.anova as anova_module
     monkeypatch.setattr(anova_module, "RESULTS_DIR", tmp_path)
 
     result = run_market_regime_comparison(full_returns)
     assert result["name"] == "market_regime_comparison"
     assert "p_value" in result
-    # bull/rate_hike/crisis → 3쌍
-    assert len(result["post_hoc"]) == 3
+    assert isinstance(result["post_hoc"], list)
+    # Two-way 추가 필드
+    assert "interaction" in result
+    assert "f_statistic" in result["interaction"]
+    assert "p_value" in result["interaction"]
+    assert "significant" in result["interaction"]
+    assert isinstance(result["interaction"]["significant"], bool)
+    assert "strategy_effect" in result
+    assert "f_statistic" in result["strategy_effect"]
 
 
 def test_run_all_anova_returns_three_results(full_returns, tmp_path, monkeypatch):
@@ -223,3 +230,7 @@ def test_run_all_anova_with_csv(full_returns, tmp_path, monkeypatch):
     for r in results:
         assert np.isfinite(r["f_statistic"])
         assert 0.0 <= r["p_value"] <= 1.0
+    # market_regime_comparison은 Two-way 필드 추가 검증
+    regime_result = next(r for r in results if r["name"] == "market_regime_comparison")
+    assert "interaction" in regime_result
+    assert "strategy_effect" in regime_result
