@@ -14,20 +14,22 @@
 **정의 위치**: `src/rl/anova.py` — `_REGIME_SLICES`  
 **데이터 파일**: `data/processed/regime_labels.csv` (별도 파일, features.parquet에 컬럼 추가 안 함)  
 **활용 범위**: ANOVA 분석 + SHAP 분석 전용  
-**ANOVA 검증 3**: regime × strategy **Two-way ANOVA** — Factor 1로 사용 (rate_hike / bull 2개 국면만)  
+**ANOVA 검증 3**: regime × strategy **Two-way ANOVA** — Factor 1로 사용 (3개 국면, 균형 3×3 설계)  
 **RL 관측공간 투입 금지**: 사후 라벨링(사후 정답지)이므로 미래 정보 누수에 해당
 
 | 레이블 | 기간 | 설명 | 활용 |
 |--------|------|------|------|
-| `rate_hike` | 2022-01-01 ~ 2022-12-31 | 금리 급등, 주식·채권 동반 하락 | **ANOVA** — OOS W1 테스트 구간 |
-| `bull` | 2023-01-01 ~ 2024-12-31 | 회복장 + AI 랠리 (2년 합산) | **ANOVA** — OOS W2·W3 테스트 구간 |
+| `rate_hike` | 2022-01-01 ~ 2022-12-31 | 금리 급등, 주식·채권 동반 하락 (하락장) | **ANOVA** — OOS W1 테스트 구간 |
+| `recovery` | 2023-01-01 ~ 2023-12-31 | 금리 인상 후 회복장 | **ANOVA** — OOS W2 테스트 구간 |
+| `bull` | 2024-01-01 ~ 2024-12-31 | AI 랠리 강세장 | **ANOVA** — OOS W3 테스트 구간 |
 | `crisis` | 2020-02-01 ~ 2020-05-31 | 코로나 폭락 | **SHAP 전용** — in-sample, ANOVA 제외 |
 
 > **`rate_hike`가 이 프로젝트의 핵심 OOS 스트레스 구간**  
 > W1 모델(학습 2018~2021)이 금리 인상 패턴을 본 적 없는 상태에서 2022년을 테스트.  
-> `crisis`(코로나)는 in-sample 구간이라 backtest CSV에 PPO/MVO 결과가 없다.  
-> crisis를 ANOVA에 포함하면 해당 셀에 EW만 존재해 결측 셀이 생기므로, Two-way 설계에서 제외한다.  
-> crisis 분석은 SHAP에서 별도 수행 (`shap.py` — crisis 날짜 필터링).
+> 3개 국면(rate_hike / recovery / bull)은 각각 W1·W2·W3 테스트 구간에 1:1 대응하며,  
+> PPO/MVO/EW 모두 해당 구간 백테스트 결과가 존재 → 결측 셀 없는 균형 3×3 설계.  
+> `crisis`(코로나)는 in-sample 구간이라 PPO/MVO 결과 없음 → SHAP 전용으로 분리  
+> (`shap.py` — crisis 날짜 필터링).
 
 ### regime_labels.csv 포맷
 
@@ -42,7 +44,10 @@ date,regime
 2022-01-03,rate_hike
 ...
 2022-12-30,rate_hike
-2023-01-02,bull
+2023-01-02,recovery
+...
+2023-12-29,recovery
+2024-01-02,bull
 ...
 2024-12-31,bull
 ```

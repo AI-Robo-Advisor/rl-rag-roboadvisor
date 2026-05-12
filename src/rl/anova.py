@@ -4,13 +4,14 @@
     1. reward_function_comparison: 보상함수 3종(return/sharpe/mdd) 성과 비교 (One-way)
     2. strategy_comparison: PPO vs MVO vs 동일비중 비교 (One-way)
     3. market_regime_comparison: 국면(regime) × 전략(strategy) 성과 비교 (Two-way)
-       - Factor 1: rate_hike / bull  (OOS 구간만 — 균형 2×3 설계)
+       - Factor 1: rate_hike / recovery / bull  (OOS 구간만 — 균형 3×3 설계)
        - Factor 2: PPO / MVO / EW
        - 교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증
 
 국면 정의 (Walk-Forward 윈도우 기반):
-    rate_hike = 2022        (W1 test, 금리 급등·주식채권 동반 하락)
-    bull      = 2023 + 2024 (W2·W3 test, 회복장·AI 랠리)
+    rate_hike = 2022 (W1 test, 금리 급등·주식채권 동반 하락 — 하락장)
+    recovery  = 2023 (W2 test, 금리 인상 후 회복장)
+    bull      = 2024 (W3 test, AI 랠리 강세장)
 
 crisis(코로나 2020-02~05)는 in-sample 구간이라 backtest CSV에 PPO/MVO 결과가 없다.
 해당 기간에 EW만 존재해 결측 셀이 생기므로 Two-way ANOVA에서 제외한다.
@@ -33,11 +34,12 @@ logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path("data/results")
 
-# OOS 국면별 날짜 구간 — PPO/MVO/EW 모두 데이터가 있는 구간만 포함 (균형 설계)
+# OOS 국면별 날짜 구간 — PPO/MVO/EW 모두 데이터가 있는 구간만 포함 (균형 3×3 설계)
 # crisis(코로나 2020)는 in-sample이라 backtest CSV 없음 → SHAP 전용으로 분리
 _REGIME_SLICES: dict[str, list[tuple[str, str]]] = {
-    "rate_hike": [("2022-01-01", "2022-12-31")],
-    "bull":      [("2023-01-01", "2023-12-31"), ("2024-01-01", "2024-12-31")],
+    "rate_hike": [("2022-01-01", "2022-12-31")],   # W1 test — 하락장
+    "recovery":  [("2023-01-01", "2023-12-31")],   # W2 test — 회복장
+    "bull":      [("2024-01-01", "2024-12-31")],   # W3 test — AI 랠리 강세장
 }
 
 
@@ -232,7 +234,7 @@ def run_strategy_comparison(returns: pd.DataFrame) -> dict:
 def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
     """실험 3: 국면(regime) × 전략(strategy) Two-way ANOVA.
 
-    Factor 1 (regime): rate_hike / bull  (OOS 구간만 — 균형 2×3 설계)
+    Factor 1 (regime): rate_hike / recovery / bull  (OOS 구간만 — 균형 3×3 설계)
     Factor 2 (strategy): PPO / MVO / EW
     교호작용(interaction): 전략 효과가 국면에 따라 달라지는지 검증.
 

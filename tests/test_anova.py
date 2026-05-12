@@ -216,13 +216,13 @@ def test_run_all_anova_with_csv(full_returns, tmp_path, monkeypatch):
     import src.rl.anova as anova_module
     monkeypatch.setattr(anova_module, "RESULTS_DIR", tmp_path)
 
-    # CSV 파일 직접 생성
+    # CSV 파일 직접 생성 — rate_hike(2022) + recovery(2023) + bull(2024) 모두 커버
     rng = np.random.default_rng(99)
     for reward in ["return", "sharpe", "mdd"]:
-        idx = pd.date_range("2022-01-03", periods=252, freq="B")
+        idx = pd.date_range("2022-01-03", "2024-12-31", freq="B")
         pd.DataFrame({
             "date": idx.strftime("%Y-%m-%d"),
-            "episode_return": rng.normal(0.001, 0.01, 252),
+            "episode_return": rng.normal(0.001, 0.01, len(idx)),
         }).to_csv(tmp_path / f"backtest_{reward}.csv", index=False)
 
     results = run_all_anova(full_returns)
