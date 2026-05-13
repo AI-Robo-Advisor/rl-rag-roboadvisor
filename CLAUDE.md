@@ -132,4 +132,4 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 > | `data/processed/features.parquet` | ✅ 생성됨 (1865행, 40열, Z-score 정규화) |
 > | `src/agent/` | LangGraph 워크플로우와 리스크 태그 추출 코드 존재. `/research`에서 lazy integration 사용 |
 > | `src/rl/` | `metrics.py`, `backtest.py`, `anova.py`, `mvo.py` 코드 존재. PPO/SHAP/API 실연동은 추가 정리 필요 |
-> | Docker | `api` / `dashboard` 의존성 분리 완료 (`requirements-api.txt`, `requirements-dashboard.txt`, `requirements-train.txt`, `.dockerignore`) |
+> | Docker | `api` / `dashboard` 의존성 분리 완료. API 이미지는 `/research` RAG 조회용 `chroma_db/`와 API fallback용 `data/processed/`를 포함 |
