@@ -16,13 +16,18 @@ import pandas as pd
 from apps.api.config import settings
 from apps.api.schemas import (
     AnovaResult,
+    BacktestWindow,
     BacktestResponse,
     ExplainResponse,
     FeatureContribution,
+    InteractionStats,
     OptimizeResponse,
     ReturnSeries,
     ResearchResponse,
     RiskProfile,
+    SafeguardState,
+    StrategyEffectStats,
+    TukeyRow,
 )
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
@@ -145,7 +150,7 @@ def build_fallback_research(question: str) -> ResearchResponse:
     )
 
 
-def build_fallback_backtest() -> BacktestResponse:
+def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestResponse:
     """Return metric output from available data plus fallback ANOVA summaries."""
     metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload()
     anova = _fallback_anova()
@@ -165,12 +170,15 @@ def build_fallback_backtest() -> BacktestResponse:
         var_95=float(metrics.get("var_95", 0.0)),
         cvar_95=float(metrics.get("cvar_95", 0.0)),
         mdd=current_mdd,
-        safeguard={
-            "active": False,
-            "triggered_at": None,
-            "current_drawdown": abs(drawdown[-1]) if drawdown else current_mdd,
-        },
-        message="Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다.",
+        safeguard=SafeguardState(
+            active=False,
+            triggered_at=None,
+            current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
+        ),
+        message=(
+            f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. "
+            f"(window={window})"
+        ),
     )
 
 
@@ -411,21 +419,74 @@ def _fallback_anova() -> list[AnovaResult]:
             f_statistic=3.12,
             p_value=0.041,
             eta_squared=0.18,
-            post_hoc="Tukey HSD pending full experiment output.",
+            post_hoc=[
+                TukeyRow(
+                    group1="PPO-return",
+                    group2="PPO-sharpe",
+                    meandiff=0.021,
+                    p_adj=0.032,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO-return",
+                    group2="PPO-mdd",
+                    meandiff=0.009,
+                    p_adj=0.210,
+                    reject=False,
+                ),
+                TukeyRow(
+                    group1="PPO-sharpe",
+                    group2="PPO-mdd",
+                    meandiff=0.012,
+                    p_adj=0.089,
+                    reject=False,
+                ),
+            ],
         ),
         AnovaResult(
             name="strategy_comparison",
             f_statistic=4.36,
             p_value=0.028,
             eta_squared=0.22,
-            post_hoc="DRL vs MVO vs equal-weight placeholder comparison.",
+            post_hoc=[
+                TukeyRow(
+                    group1="PPO",
+                    group2="MVO",
+                    meandiff=0.031,
+                    p_adj=0.002,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO",
+                    group2="동일비중",
+                    meandiff=0.018,
+                    p_adj=0.041,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="MVO",
+                    group2="동일비중",
+                    meandiff=0.013,
+                    p_adj=0.312,
+                    reject=False,
+                ),
+            ],
         ),
         AnovaResult(
             name="market_regime_comparison",
             f_statistic=2.07,
             p_value=0.096,
             eta_squared=0.11,
-            post_hoc="p >= 0.05; report effect size interpretation.",
+            post_hoc=[],
+            interaction=InteractionStats(
+                f_statistic=3.14,
+                p_value=0.021,
+                significant=True,
+            ),
+            strategy_effect=StrategyEffectStats(
+                f_statistic=4.52,
+                p_value=0.011,
+            ),
         ),
     ]
 
