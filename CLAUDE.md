@@ -124,7 +124,7 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 > | 모듈 | 상태 |
 > |------|------|
 > | `apps/api/` | `/health`, `/optimize`, `/explain`, `/research`, `/backtest` 라우터 존재. fallback 중심이지만 `/backtest`의 `window` 쿼리와 nested ANOVA 스키마 계약은 반영됨 |
-> | `apps/dashboard/` | API 호출 + mock 렌더링 구현 존재. `/backtest` ANOVA nested payload를 기대하는 구조 |
+> | `apps/dashboard/` | API 호출 + mock 렌더링 구현 존재. API 실패 시 `이는 mock 응답입니다.` 경고/로그를 남기며 `/backtest` nested ANOVA payload를 처리 |
 > | `src/data/collector.py` | ✅ 완료 — yfinance·pykrx 수집, 병합, 로그수익률 계산, parquet 저장 |
 > | `src/data/indicators.py` | ✅ 완료 — RSI(14), MACD(12/26/9) 계산, Z-score 정규화, features.parquet 저장 |
 > | `data/raw/prices.parquet` | ✅ 생성됨 (10자산, 2018-01-02~2025-12-30, 1899행) |
@@ -132,6 +132,7 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 > | `data/processed/features.parquet` | ✅ 생성됨 (1865행, 40열, Z-score 정규화) |
 > | `src/agent/` | LangGraph 워크플로우와 리스크 태그 추출 코드 존재. `/research`에서 lazy integration 사용 |
 > | `src/rl/` | `metrics.py`, `backtest.py`, `anova.py`, `mvo.py` 코드 존재. PPO/SHAP/API 실연동은 추가 정리 필요 |
+> | Docker | `api` / `dashboard` 의존성 분리 완료 (`requirements-api.txt`, `requirements-dashboard.txt`, `requirements-train.txt`, `.dockerignore`) |
 
 ## 진행 중 작업 메모
 - 현재 작업 브랜치: `feature-j-api-contract`
@@ -140,3 +141,4 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 - 로컬 작업 기준 문서: `agents.md`, `apps/api/agents.md`
 - `GET /backtest/stress`는 과제명세서 필수 범위에서 제외하고, 2022 금리 충격 구간은 `GET /backtest?window=w1`로 조회하는 방향으로 정리
 - 코드 반영 완료: `apps/api/schemas.py`, `apps/api/routers/backtest.py`, `apps/api/services.py`, `tests/test_api.py`
+- Docker 분리 완료: API는 결과 서빙 중심 최소 의존성, dashboard는 UI 전용 의존성, RL 학습용 의존성은 `requirements-train.txt`로 분리
