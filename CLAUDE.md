@@ -142,3 +142,4 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 - `GET /backtest/stress`는 과제명세서 필수 범위에서 제외하고, 2022 금리 충격 구간은 `GET /backtest?window=w1`로 조회하는 방향으로 정리
 - 코드 반영 완료: `apps/api/schemas.py`, `apps/api/routers/backtest.py`, `apps/api/services.py`, `tests/test_api.py`
 - Docker 분리 완료: API는 결과 서빙 중심 최소 의존성, dashboard는 UI 전용 의존성, RL 학습용 의존성은 `requirements-train.txt`로 분리
+- Docker dashboard import 이슈 수정: `streamlit run apps/dashboard/app.py` 실행 시 `apps.dashboard.api_client` 절대 import가 깨질 수 있어, `apps/dashboard/app.py`에 로컬 import fallback을 추가
