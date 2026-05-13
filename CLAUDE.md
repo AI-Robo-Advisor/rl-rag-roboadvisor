@@ -137,7 +137,6 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 ## 진행 중 작업 메모
 - 현재 작업 브랜치: `feature-j-api-contract`
 - 이번 작업 범위: API 계약 문서 + `schemas.py` / `routers` / `services` 설계 정리
-- 설계 초안 문서: `docs/superpowers/specs/2026-05-13-api-contract-design.md`
 - 로컬 작업 기준 문서: `agents.md`, `apps/api/agents.md`
 - `GET /backtest/stress`는 과제명세서 필수 범위에서 제외하고, 2022 금리 충격 구간은 `GET /backtest?window=w1`로 조회하는 방향으로 정리
 - 코드 반영 완료: `apps/api/schemas.py`, `apps/api/routers/backtest.py`, `apps/api/services.py`, `tests/test_api.py`
