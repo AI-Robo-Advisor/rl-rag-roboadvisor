@@ -142,3 +142,4 @@ COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 - 코드 반영 완료: `apps/api/schemas.py`, `apps/api/routers/backtest.py`, `apps/api/services.py`, `tests/test_api.py`
 - Docker 분리 완료: API는 결과 서빙 중심 최소 의존성, dashboard는 UI 전용 의존성, RL 학습용 의존성은 `requirements-train.txt`로 분리
 - Docker dashboard import 이슈 수정: `streamlit run apps/dashboard/app.py` 실행 시 `apps.dashboard.api_client` 절대 import가 깨질 수 있어, `apps/dashboard/app.py`에 로컬 import fallback을 추가
+- 로컬 개발 편의용 `requirements-local.txt` 추가. `Dockerfile.train`은 아직 만들지 않았고, 관련 안내를 `requirements-train.txt`와 `docker-compose.yml` 주석으로 공유

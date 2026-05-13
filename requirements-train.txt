@@ -1,3 +1,6 @@
+# RL training and offline analysis dependencies only.
+# Dockerfile.train is intentionally not added yet.
+# For now, use this file from a local virtualenv when running training/backtest/SHAP jobs.
 yfinance==0.2.66
 pykrx==1.0.51
 feedparser==6.0.12
