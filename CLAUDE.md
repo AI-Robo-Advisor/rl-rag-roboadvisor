@@ -119,15 +119,23 @@ docker compose up api
 COLLECTOR_SMOKE_TMP=1 python scripts/collector_smoke_test.py
 ```
 
-> **현재 구현 상태** (2026-04-09 기준):
+> **현재 구현 상태** (2026-05-13 기준):
 >
 > | 모듈 | 상태 |
 > |------|------|
-> | `apps/api/` | `/health` 엔드포인트만 구현. `/optimize`, `/explain`, `/research`, `/backtest` 미구현 |
-> | `apps/dashboard/` | 플레이스홀더만 존재 |
+> | `apps/api/` | `/health`, `/optimize`, `/explain`, `/research`, `/backtest` 라우터 존재. 다만 Sprint 2 fallback 중심이며 `/backtest` ANOVA 스키마와 `window` 계약은 미정합 |
+> | `apps/dashboard/` | API 호출 + mock 렌더링 구현 존재. `/backtest` ANOVA nested payload를 기대하는 구조 |
 > | `src/data/collector.py` | ✅ 완료 — yfinance·pykrx 수집, 병합, 로그수익률 계산, parquet 저장 |
 > | `src/data/indicators.py` | ✅ 완료 — RSI(14), MACD(12/26/9) 계산, Z-score 정규화, features.parquet 저장 |
 > | `data/raw/prices.parquet` | ✅ 생성됨 (10자산, 2018-01-02~2025-12-30, 1899행) |
 > | `data/processed/returns.parquet` | ✅ 생성됨 (1898행, 10열, raw 로그수익률) |
 > | `data/processed/features.parquet` | ✅ 생성됨 (1865행, 40열, Z-score 정규화) |
-> | `src/agent/`, `src/rl/` | 미구현 (개발 예정) |
+> | `src/agent/` | LangGraph 워크플로우와 리스크 태그 추출 코드 존재. `/research`에서 lazy integration 사용 |
+> | `src/rl/` | `metrics.py`, `backtest.py`, `anova.py`, `mvo.py` 코드 존재. PPO/SHAP/API 실연동은 추가 정리 필요 |
+
+## 진행 중 작업 메모
+- 현재 작업 브랜치: `feature-j-api-contract`
+- 이번 작업 범위: API 계약 문서 + `schemas.py` / `routers` / `services` 설계 정리
+- 설계 초안 문서: `docs/superpowers/specs/2026-05-13-api-contract-design.md`
+- 로컬 작업 기준 문서: `agents.md`, `apps/api/agents.md`
+- `GET /backtest/stress`는 과제명세서 필수 범위에서 제외하고, 2022 금리 충격 구간은 `GET /backtest?window=w1`로 조회하는 방향으로 정리
