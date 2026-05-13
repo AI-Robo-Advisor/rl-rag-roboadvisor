@@ -16,7 +16,11 @@ import pandas as pd
 import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
 
-from apps.dashboard.api_client import get_json, post_json
+try:
+    from apps.dashboard.api_client import get_json, post_json
+except ModuleNotFoundError:
+    # Streamlit file-entry execution inside Docker may not resolve the package root.
+    from api_client import get_json, post_json
 
 # ─────────────────────────────────────────────
 # 설정
