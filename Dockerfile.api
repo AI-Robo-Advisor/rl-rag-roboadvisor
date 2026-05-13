@@ -1,17 +1,18 @@
-# Python 3.11 (팀 개발 환경 통일)
-FROM python:3.11
+FROM python:3.11-slim
 
-# 작업 디렉토리
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# requirements 먼저 복사 (캐싱 최적화)
-COPY requirements.txt .
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
 
-# 의존성 설치
-RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/ apps/
+COPY src/ src/
+COPY data/ data/
+COPY config.py .
 
-# 전체 코드 복사
-COPY . .
+EXPOSE 8000
 
-# FastAPI 실행
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
