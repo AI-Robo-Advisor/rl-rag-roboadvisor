@@ -13,9 +13,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
+
+try:
+    from apps.dashboard.api_client import get_json, post_json
+except ModuleNotFoundError:
+    # Streamlit file-entry execution inside Docker may not resolve the package root.
+    from api_client import get_json, post_json
 
 # ─────────────────────────────────────────────
 # 설정
@@ -35,23 +40,23 @@ _PERIOD_MONTHS = {"1개월": 21, "3개월": 63, "6개월": 126, "12개월": 252,
 # ─────────────────────────────────────────────
 
 def _get(endpoint: str, params: dict | None = None) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(f"{API_BASE_URL}{endpoint}", params=params, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        st.warning(f"API 연결 실패 ({endpoint}): {e} — mock 데이터로 표시합니다.")
-        return None
+    return get_json(
+        API_BASE_URL,
+        endpoint,
+        params=params,
+        timeout=REQUEST_TIMEOUT,
+        warn=st.warning,
+    )
 
 
 def _post(endpoint: str, payload: dict) -> dict[str, Any] | None:
-    try:
-        resp = requests.post(f"{API_BASE_URL}{endpoint}", json=payload, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        st.warning(f"API 연결 실패 ({endpoint}): {e} — mock 데이터로 표시합니다.")
-        return None
+    return post_json(
+        API_BASE_URL,
+        endpoint,
+        payload,
+        timeout=REQUEST_TIMEOUT,
+        warn=st.warning,
+    )
 
 
 # ─────────────────────────────────────────────
