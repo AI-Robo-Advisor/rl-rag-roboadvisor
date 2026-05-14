@@ -69,13 +69,23 @@ def _post(endpoint: str, payload: dict, timeout: int = _TIMEOUT_DEFAULT) -> dict
 def _echarts_line(
     x: list, series: list[dict], title: str = "",
     height: str = "380px", y_formatter: str = "",
-    zoom: bool = True, key: str = "chart",
+    zoom: bool = True, key: str = "chart", legend: bool = True,
 ) -> None:
+    _legend = (
+        {
+            "top": 28, "type": "scroll",
+            "itemWidth": 28, "itemHeight": 14,
+            "textStyle": {"fontSize": 12},
+            "icon": "roundRect",
+        }
+        if legend else {"show": False}
+    )
+    _grid_top = "22%" if legend else "12%"
     opts: dict = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "axis"},
-        "legend": {"bottom": 0, "type": "scroll"},
-        "grid": {"bottom": "18%" if zoom else "12%", "top": "12%", "containLabel": True},
+        "legend": _legend,
+        "grid": {"bottom": "14%" if zoom else "8%", "top": _grid_top, "containLabel": True},
         "xAxis": {"type": "category", "data": x, "boundaryGap": False},
         "yAxis": {"type": "value",
                   "axisLabel": {"formatter": y_formatter} if y_formatter else {}},
@@ -116,7 +126,12 @@ def _echarts_donut(
     opts = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "item", "formatter": "{b}: {d}%"},
-        "legend": {"bottom": 0, "type": "scroll"},
+        "legend": {
+            "bottom": 6, "type": "scroll",
+            "itemWidth": 12, "itemHeight": 12,
+            "textStyle": {"fontSize": 11},
+            "icon": "circle",
+        },
         "series": [{
             "type": "pie", "radius": ["38%", "65%"], "avoidLabelOverlap": True,
             "itemStyle": {"borderRadius": 8, "borderColor": "#fff", "borderWidth": 2},
@@ -308,7 +323,8 @@ def portfolio_page() -> None:
             _echarts_donut(
                 labels=list(data["weights"].keys()),
                 values=list(data["weights"].values()),
-                title="자산 비중", key="p_donut",
+                title="자산 비중",
+                 key="p_donut",
             )
     with col2:
         with st.container(border=True):
@@ -369,6 +385,7 @@ def rl_page() -> None:
                          "areaStyle": {"opacity": 0.12}, "data": bt["rewards"],
                          "itemStyle": {"color": _PALETTE[1]}}],
                 title="학습 곡선 (에피소드 누적 보상)", key="rl_reward",
+                legend=False,
             )
     with col2:
         with st.container(border=True):
@@ -475,6 +492,7 @@ def research_page() -> None:
                 if (ta._researchBound) return;
                 ta._researchBound = true;
                 ta.addEventListener('keydown', function(e) {
+                    if (e.isComposing) return;
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         ta.blur();
