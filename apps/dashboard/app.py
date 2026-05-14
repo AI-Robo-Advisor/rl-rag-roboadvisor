@@ -455,8 +455,14 @@ def research_page() -> None:
         if not question.strip():
             st.error("질문을 입력하세요.")
         else:
-            with st.spinner("POST /research 호출 중 (최대 60초)…"):
-                res = _post("/research", {"question": question}, timeout=_TIMEOUT_RESEARCH) or _mock_research(question)
+            with st.status("에이전트 리서치 진행 중…", expanded=True) as status:
+                st.write("LangGraph 파이프라인 실행 (planner → researcher → analyst)")
+                res = _post("/research", {"question": question}, timeout=_TIMEOUT_RESEARCH)
+                if res is None:
+                    res = _mock_research(question)
+                    status.update(label="API 미연결 — mock 응답", state="error", expanded=False)
+                else:
+                    status.update(label="리서치 완료", state="complete", expanded=False)
 
             col1, col2 = st.columns([2, 1])
             with col1:
