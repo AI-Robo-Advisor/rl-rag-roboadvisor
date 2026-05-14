@@ -8,15 +8,17 @@ class PortfolioEnv(gym.Env):
 
     로그수익률 기반의 자산 수익률을 사용하며, 행동값을 포트폴리오 비중으로
     정규화한 뒤 거래비용, 슬리피지, MDD Safe-Guard를 반영합니다.
+    RAG 기반 리스크 태그 벡터(규제변경·실적쇼크·급등락)를 관측공간에 포함합니다.
     """
     def __init__(
-        self, 
-        returns_df, 
-        features_df, 
+        self,
+        returns_df,
+        features_df,
         lookback=30,
         reward_type="return",
         lambda_mdd=1.0,
         volatility_window=20,
+        risk_vector=None,
         ):
         """PortfolioEnv를 초기화합니다.
 
@@ -27,6 +29,8 @@ class PortfolioEnv(gym.Env):
             reward_type: 사용할 보상 함수 유형입니다. "return", "sharpe", "mdd" 중 하나입니다.
             lambda_mdd: MDD 페널티 보상에서 사용할 MDD 가중치입니다.
             volatility_window: Sharpe 보상 계산에 사용할 변동성 추정 윈도우입니다.
+            risk_vector: RAG 리스크 태그 벡터입니다. shape=(3,), 순서: [규제변경, 실적쇼크, 급등락].
+                None이면 np.zeros(3, dtype=np.float32)로 초기화됩니다.
 
         Raises:
             ValueError: 지원하지 않는 reward_type이 입력된 경우 발생합니다.
@@ -66,9 +70,19 @@ class PortfolioEnv(gym.Env):
         self.peak_portfolio_value = self.initial_portfolio_value
         self.current_mdd = 0.0
 
-        # returns window + current weights + RSI + MACD
-        # MACD_signal 추가
-        obs_dim = (self.lookback + 3) * self.n_assets
+        # RAG 리스크 태그 벡터: [규제변경, 실적쇼크, 급등락] (shape=3)
+        if risk_vector is None:
+            self.risk_vector = np.zeros(3, dtype=np.float32)
+        else:
+            rv = np.array(risk_vector, dtype=np.float32)
+            if rv.shape != (3,):
+                raise ValueError(
+                    f"risk_vector must have shape (3,), got {rv.shape}"
+                )
+            self.risk_vector = rv
+
+        # returns window + current weights + RSI + MACD_signal + risk_vector(3)
+        obs_dim = (self.lookback + 3) * self.n_assets + len(self.risk_vector)
 
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -83,6 +97,22 @@ class PortfolioEnv(gym.Env):
             shape=(self.n_assets,),
             dtype=np.float32,
         )
+
+    def set_risk_vector(self, risk_vector: np.ndarray) -> None:
+        """RAG 리스크 태그 벡터를 갱신합니다.
+
+        Args:
+            risk_vector: shape=(3,) 배열. 순서: [규제변경, 실적쇼크, 급등락].
+
+        Raises:
+            ValueError: risk_vector의 shape이 (3,)이 아닌 경우 발생합니다.
+        """
+        rv = np.array(risk_vector, dtype=np.float32)
+        if rv.shape != (3,):
+            raise ValueError(
+                f"risk_vector must have shape (3,), got {rv.shape}"
+            )
+        self.risk_vector = rv
 
     def _normalize_action(self, action):
         """행동값을 유효한 포트폴리오 비중으로 정규화합니다.
@@ -128,6 +158,7 @@ class PortfolioEnv(gym.Env):
                 rsi,
                 # macd,
                 macd_signal,
+                self.risk_vector,
             ]
         ).astype(np.float32)
 
@@ -242,9 +273,9 @@ class PortfolioEnv(gym.Env):
         self.current_step += 1
 
         reached_end = self.current_step >= len(self.features_df)
-        safe_guard_triggered = self.current_mdd > self.safe_guard_mdd
+        safe_guard_triggered = bool(self.current_mdd > self.safe_guard_mdd)
 
-        terminated = reached_end or safe_guard_triggered
+        terminated = bool(reached_end or safe_guard_triggered)
         truncated = False
 
         if terminated:

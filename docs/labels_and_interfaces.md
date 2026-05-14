@@ -126,9 +126,10 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 | 현재 포트폴리오 비중 | `n_assets` | 이전 step의 `weights` (env 내부 상태) |
 | RSI | `n_assets` | `features_df`의 `{ticker}_RSI` |
 | MACD signal | `n_assets` | `features_df`의 `{ticker}_MACD_signal` |
-| **합계** | `(lookback + 3) × n_assets` | → `(30 + 3) × 10 = 330` 차원 |
+| **risk_vector** | `3` | RL_RISK_TAGS 3종 (규제변경 / 실적쇼크 / 급등락), `set_risk_vector()`로 갱신 |
+| **합계** | `(lookback + 3) × n_assets + 3` | → `(30 + 3) × 10 + 3 = 333` 차원 |
 
-> `obs_dim = (lookback + 3) * n_assets` (`env.py:71`)  
+> `obs_dim = (lookback + 3) * n_assets + 3` (`env.py`)  
 > features_df 컬럼 네이밍: `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD_signal`
 
 **액션 공간**: `Box(low=0.0, high=1.0, shape=(n_assets,))` — softmax 정규화 후 포트폴리오 비중으로 사용
@@ -146,14 +147,14 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 ### 3-3. 모델 파일 네이밍 규칙
 
 **저장 경로**: `models/`  
-**형식**: `ppo_{reward}_{window}.zip`  
+**형식**: `ppo_{reward}_{window}_risk.zip` (`_risk` = obs_dim 333 환경으로 학습된 모델)  
 **총 12개** (3 보상함수 × 4 윈도우)
 
 | reward \ window | w1 | w2 | w3 | final |
 |----------------|----|----|-----|-------|
-| `return` | ppo_return_w1.zip | ppo_return_w2.zip | ppo_return_w3.zip | ppo_return_final.zip |
-| `sharpe` | ppo_sharpe_w1.zip | ppo_sharpe_w2.zip | ppo_sharpe_w3.zip | ppo_sharpe_final.zip |
-| `mdd` | ppo_mdd_w1.zip | ppo_mdd_w2.zip | ppo_mdd_w3.zip | ppo_mdd_final.zip |
+| `return` | ppo_return_w1_risk.zip | ppo_return_w2_risk.zip | ppo_return_w3_risk.zip | ppo_return_final_risk.zip |
+| `sharpe` | ppo_sharpe_w1_risk.zip | ppo_sharpe_w2_risk.zip | ppo_sharpe_w3_risk.zip | ppo_sharpe_final_risk.zip |
+| `mdd` | ppo_mdd_w1_risk.zip | ppo_mdd_w2_risk.zip | ppo_mdd_w3_risk.zip | ppo_mdd_final_risk.zip |
 
 ### 3-4. Walk-Forward 윈도우 정의
 
