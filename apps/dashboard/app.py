@@ -13,9 +13,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
+
+try:
+    from apps.dashboard.api_client import get_json, post_json
+except ModuleNotFoundError:
+    # Streamlit file-entry execution inside Docker may not resolve the package root.
+    from api_client import get_json, post_json
 
 # ─────────────────────────────────────────────
 # 설정
@@ -35,23 +40,23 @@ _PERIOD_MONTHS = {"1개월": 21, "3개월": 63, "6개월": 126, "12개월": 252,
 # ─────────────────────────────────────────────
 
 def _get(endpoint: str, params: dict | None = None) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(f"{API_BASE_URL}{endpoint}", params=params, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        st.warning(f"API 연결 실패 ({endpoint}): {e} — mock 데이터로 표시합니다.")
-        return None
+    return get_json(
+        API_BASE_URL,
+        endpoint,
+        params=params,
+        timeout=REQUEST_TIMEOUT,
+        warn=st.warning,
+    )
 
 
 def _post(endpoint: str, payload: dict) -> dict[str, Any] | None:
-    try:
-        resp = requests.post(f"{API_BASE_URL}{endpoint}", json=payload, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        st.warning(f"API 연결 실패 ({endpoint}): {e} — mock 데이터로 표시합니다.")
-        return None
+    return post_json(
+        API_BASE_URL,
+        endpoint,
+        payload,
+        timeout=REQUEST_TIMEOUT,
+        warn=st.warning,
+    )
 
 
 # ─────────────────────────────────────────────
@@ -188,14 +193,33 @@ def _mock_backtest() -> dict:
         "sharpe_spark": (np.cumsum(_rng.normal(0, 0.3, 50)) + 1.27).tolist(),
         "drawdown": drawdown,
         "metrics": metrics,
-        "anova": {
-            "f_statistic": 12.34, "p_value": 0.0003, "eta_squared": 0.187,
-            "posthoc": [
-                {"group_a": "PPO", "group_b": "MVO", "p_value": 0.002, "significant": True},
-                {"group_a": "PPO", "group_b": "동일비중", "p_value": 0.041, "significant": True},
-                {"group_a": "MVO", "group_b": "동일비중", "p_value": 0.312, "significant": False},
-            ],
-        },
+        "anova": [
+            {
+                "name": "reward_function_comparison",
+                "f_statistic": 8.71, "p_value": 0.0002, "eta_squared": 0.142,
+                "post_hoc": [
+                    {"group1": "PPO-return", "group2": "PPO-sharpe", "meandiff": 0.0003, "p_adj": 0.031, "reject": True},
+                    {"group1": "PPO-return", "group2": "PPO-mdd",    "meandiff": 0.0005, "p_adj": 0.004, "reject": True},
+                    {"group1": "PPO-sharpe", "group2": "PPO-mdd",    "meandiff": 0.0002, "p_adj": 0.218, "reject": False},
+                ],
+            },
+            {
+                "name": "strategy_comparison",
+                "f_statistic": 12.34, "p_value": 0.0003, "eta_squared": 0.187,
+                "post_hoc": [
+                    {"group1": "PPO",  "group2": "MVO",    "meandiff": 0.0008, "p_adj": 0.002, "reject": True},
+                    {"group1": "PPO",  "group2": "동일비중", "meandiff": 0.0006, "p_adj": 0.041, "reject": True},
+                    {"group1": "MVO",  "group2": "동일비중", "meandiff": 0.0002, "p_adj": 0.312, "reject": False},
+                ],
+            },
+            {
+                "name": "market_regime_comparison",
+                "f_statistic": 2.07, "p_value": 0.127, "eta_squared": 0.038,
+                "post_hoc": [],
+                "interaction":     {"f_statistic": 3.14, "p_value": 0.014, "significant": True},
+                "strategy_effect": {"f_statistic": 4.52, "p_value": 0.011},
+            },
+        ],
         "var_95": metrics["var_95"], "cvar_95": metrics["cvar_95"], "mdd": metrics["mdd"],
         "safeguard": {"active": False, "triggered_at": None, "current_drawdown": 0.043},
     }
@@ -463,39 +487,59 @@ def anova_page() -> None:
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
 
-    anova = bt5.get("anova", _mock_backtest()["anova"])
+    anova_list: list = bt5.get("anova", _mock_backtest()["anova"])
 
-    # 비교 전략 필터 적용
-    posthoc_all = anova.get("posthoc", [])
-    posthoc = [
-        row for row in posthoc_all
-        if row["group_a"] in strategies or row["group_b"] in strategies
-    ] if strategies else posthoc_all
+    _EXP_LABELS = {
+        "reward_function_comparison": "검증 1 — 보상함수 비교",
+        "strategy_comparison":        "검증 2 — 전략 비교",
+        "market_regime_comparison":   "검증 3 — 국면 × 전략 (Two-way)",
+    }
+    tab_labels = [_EXP_LABELS.get(a.get("name", ""), a.get("name", "")) for a in anova_list]
+    tabs = st.tabs(tab_labels) if tab_labels else []
 
-    a1, a2, a3 = st.columns(3)
-    a1.metric("F 통계량", f"{anova['f_statistic']:.2f}", border=True)
-    a2.metric("p-value", f"{anova['p_value']:.4f}", border=True)
-    a3.metric("η² (효과 크기)", f"{anova['eta_squared']:.3f}", border=True)
+    for tab, anova in zip(tabs, anova_list):
+        with tab:
+            a1, a2, a3 = st.columns(3)
+            a1.metric("F 통계량", f"{anova.get('f_statistic', 0):.2f}", border=True)
+            a2.metric("p-value", f"{anova.get('p_value', 1):.4f}", border=True)
+            a3.metric("η² (효과 크기)", f"{anova.get('eta_squared', 0):.3f}", border=True)
 
-    if anova["p_value"] < 0.05:
-        st.success("✅ 전략 간 성과 차이가 통계적으로 유의합니다 (p < 0.05)")
-    else:
-        st.warning("⚠️ 통계적으로 유의한 차이 없음 (p ≥ 0.05)")
+            if anova.get("p_value", 1) < 0.05:
+                st.success("✅ 집단 간 성과 차이가 통계적으로 유의합니다 (p < 0.05)")
+            else:
+                st.warning("⚠️ 통계적으로 유의한 차이 없음 (p ≥ 0.05)")
 
-    with st.container(border=True):
-        st.markdown("**사후 검정 결과 (Tukey HSD)**")
-        if posthoc:
-            ph = pd.DataFrame(posthoc)
-            ph["유의여부"] = ph["significant"].map({True: "✅", False: "—"})
-            ph["p_value"] = ph["p_value"].map("{:.4f}".format)
-            st.dataframe(
-                ph[["group_a", "group_b", "p_value", "유의여부"]].rename(
-                    columns={"group_a": "전략 A", "group_b": "전략 B", "p_value": "p-value"}
-                ),
-                hide_index=True, use_container_width=True,
-            )
-        else:
-            st.info("왼쪽 사이드바에서 비교 전략을 선택하세요.")
+            # Two-way 교호작용 표시 (검증 3 전용)
+            interaction = anova.get("interaction")
+            if interaction:
+                sig = interaction.get("significant", False)
+                label = "✅ 교호작용 유의 (전략 효과가 국면에 따라 다름)" if sig else "교호작용 비유의"
+                st.info(f"**교호작용** — F={interaction.get('f_statistic', 0):.2f}, "
+                        f"p={interaction.get('p_value', 1):.4f}  |  {label}")
+                strat = anova.get("strategy_effect", {})
+                st.caption(f"전략 주효과 — F={strat.get('f_statistic', 0):.2f}, "
+                           f"p={strat.get('p_value', 1):.4f}")
+
+            with st.container(border=True):
+                st.markdown("**사후 검정 결과 (Tukey HSD)**")
+                posthoc_all = anova.get("post_hoc", [])
+                posthoc = [
+                    row for row in posthoc_all
+                    if row["group1"] in strategies or row["group2"] in strategies
+                ] if strategies else posthoc_all
+
+                if posthoc:
+                    ph = pd.DataFrame(posthoc)
+                    ph["유의여부"] = ph["reject"].map({True: "✅", False: "—"})
+                    ph["p_adj"] = ph["p_adj"].map("{:.4f}".format)
+                    st.dataframe(
+                        ph[["group1", "group2", "p_adj", "유의여부"]].rename(
+                            columns={"group1": "집단 A", "group2": "집단 B", "p_adj": "p-adj"}
+                        ),
+                        hide_index=True, use_container_width=True,
+                    )
+                else:
+                    st.info("사후 검정 결과 없음 (p ≥ 0.05 또는 왼쪽 사이드바에서 전략을 선택하세요).")
 
 
 def risk_page() -> None:

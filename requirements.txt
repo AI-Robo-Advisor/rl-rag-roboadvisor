@@ -36,5 +36,9 @@ gymnasium[classic-control]==1.2.3
 stable-baselines3==2.8.0s
 tensorboard==2.16.2
 
+# 통계 분석 (anova.py, mvo.py)
+scipy>=1.12.0
+statsmodels>=0.14.0
+
 # 대시보드 차트
 streamlit-echarts~=0.6.0
