@@ -126,7 +126,7 @@ def train_one_model(
         tb_log_name=f"ppo_{reward_type}_{window_name}",
     )
 
-    model_path = MODELS_DIR / f"ppo_{reward_type}_{window_name}"
+    model_path = MODELS_DIR / f"ppo_{reward_type}_{window_name}_risk"
     model.save(str(model_path))
 
     print(f"[완료] {reward_type} / {window_name}")

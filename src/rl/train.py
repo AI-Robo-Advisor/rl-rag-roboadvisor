@@ -37,10 +37,10 @@ def main():
     )
 
     Path("models").mkdir(exist_ok=True)
-    model.save("models/ppo_return_50k")
+    model.save("models/ppo_return_50k_risk")
 
     print("PPO 50k 학습 완료")
-    print("모델 저장: models/ppo_return_50k.zip")
+    print("모델 저장: models/ppo_return_50k_risk.zip")
 
 
 if __name__ == "__main__":

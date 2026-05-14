@@ -35,7 +35,7 @@ def test_env_reset_observation_shape(sample_data):
 
     obs, info = env.reset()
 
-    expected_obs_dim = (lookback + 3) * len(tickers)
+    expected_obs_dim = (lookback + 3) * len(tickers) + 3
 
     assert obs.shape == (expected_obs_dim,)
     assert obs.dtype == np.float32
@@ -216,6 +216,90 @@ def test_reward_type_mdd_applies_lambda_penalty(sample_data):
     assert info["reward_type"] == "mdd"
 
 
+def test_risk_vector_obs_shape_with_default(sample_data):
+    """risk_vector 미전달 시 obs shape이 기존 대비 +3임을 검증합니다."""
+    returns_df, features_df, tickers = sample_data
+    lookback = 30
+
+    env = PortfolioEnv(returns_df, features_df, lookback=lookback)
+    obs, _ = env.reset()
+
+    expected_obs_dim = (lookback + 3) * len(tickers) + 3
+
+    assert obs.shape == (expected_obs_dim,)
+    assert env.observation_space.shape == (expected_obs_dim,)
+
+
+def test_risk_vector_default_is_zeros(sample_data):
+    """기본 risk_vector가 np.zeros(3)인지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+
+    env = PortfolioEnv(returns_df, features_df, lookback=30)
+
+    assert env.risk_vector.shape == (3,)
+    assert np.all(env.risk_vector == 0.0)
+    assert env.risk_vector.dtype == np.float32
+
+
+def test_risk_vector_appended_to_obs(sample_data):
+    """risk_vector가 obs 마지막 3개 원소에 반영되는지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+    lookback = 30
+    risk = np.array([1.0, 0.0, 1.0], dtype=np.float32)
+
+    env = PortfolioEnv(returns_df, features_df, lookback=lookback, risk_vector=risk)
+    obs, _ = env.reset()
+
+    assert np.allclose(obs[-3:], risk)
+
+
+def test_set_risk_vector_updates_obs(sample_data):
+    """set_risk_vector 호출 후 obs 마지막 3개 원소가 갱신되는지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+
+    env = PortfolioEnv(returns_df, features_df, lookback=30)
+    env.reset()
+
+    new_risk = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    env.set_risk_vector(new_risk)
+
+    obs = env._get_observation()
+
+    assert np.allclose(obs[-3:], new_risk)
+
+
+def test_risk_vector_wrong_shape_raises_error(sample_data):
+    """risk_vector shape이 (3,)이 아니면 ValueError를 발생시키는지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+
+    with pytest.raises(ValueError, match="risk_vector must have shape"):
+        PortfolioEnv(returns_df, features_df, lookback=30, risk_vector=[1.0, 0.0])
+
+
+def test_set_risk_vector_wrong_shape_raises_error(sample_data):
+    """set_risk_vector에 잘못된 shape 전달 시 ValueError를 발생시키는지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+
+    env = PortfolioEnv(returns_df, features_df, lookback=30)
+
+    with pytest.raises(ValueError, match="risk_vector must have shape"):
+        env.set_risk_vector(np.array([1.0, 0.0]))
+
+
+def test_terminated_is_python_bool(sample_data):
+    """step()의 terminated가 Python bool 타입인지 검증합니다."""
+    returns_df, features_df, _ = sample_data
+
+    env = PortfolioEnv(returns_df, features_df, lookback=30)
+    env.reset()
+
+    action = env.action_space.sample()
+    _, _, terminated, truncated, _ = env.step(action)
+
+    assert isinstance(terminated, bool)
+    assert isinstance(truncated, bool)
+
+
 def test_invalid_reward_type_raises_error(sample_data):
     returns_df, features_df, _ = sample_data
 
@@ -235,7 +319,7 @@ def test_observation_uses_only_spec_features(sample_data):
     env = PortfolioEnv(returns_df, features_df, lookback=lookback)
     obs, _ = env.reset()
 
-    expected_obs_dim = (lookback + 3) * len(tickers)
+    expected_obs_dim = (lookback + 3) * len(tickers) + 3
 
     assert obs.shape == (expected_obs_dim,)
     assert env.observation_space.shape == (expected_obs_dim,)
