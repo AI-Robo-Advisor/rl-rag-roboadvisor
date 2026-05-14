@@ -7,32 +7,51 @@ PPO 정책의 의사결정을 SHAP으로 해석하고, /explain 엔드포인트 
 호출하는 방식으로 통합됩니다.
 
 공개 인터페이스:
-    get_feature_names(asset_names, lookback)  → list[str]  (333개, 모델 불필요)
-    compute_shap_explanation(...)             → dict        (ExplainResponse 호환)
-    generate_summary_plot(...)               → None        (파일 또는 화면 출력)
-    generate_force_plot(...)                 → None        (파일 또는 화면 출력)
+    is_shap_ready(model_path)                → bool        (모델·패키지 로드 가능 여부)
+    get_feature_names(asset_names, lookback) → list[str]   (333개, 모델 불필요)
+    compute_shap_explanation(...)            → dict         (ExplainResponse 호환)
+    generate_summary_plot(...)              → None          (파일 또는 화면 출력)
+    generate_force_plot(...)               → None           (파일 또는 화면 출력)
 
-연동 예시 (박지민 → services.py):
-    from src.rl.shap import compute_shap_explanation
+────────────────────────────────────────────────────────────
+박지민(services.py) 연동 가이드
+────────────────────────────────────────────────────────────
 
-    result = compute_shap_explanation(
-        model_path="models/ppo_sharpe_final.zip",
-        features_df=pd.read_parquet("data/processed/features.parquet"),
-        returns_df=pd.read_parquet("data/processed/returns.parquet"),
-        date=request.date,
-        top_k=request.top_k,
-    )
-    return ExplainResponse(
-        status="ready",
-        date=request.date,
-        target_date=result["target_date"],
-        base_value=result["base_value"],
-        prediction=result["prediction"],
-        feature_contributions=[FeatureContribution(**fc) for fc in result["feature_contributions"]],
-        feature_names=result["feature_names"],
-        shap_values=result["shap_values"],
-        message="SHAP 분석 완료.",
-    )
+1) build_module_statuses() — "shap" 상태 판단:
+
+    from src.rl.shap import is_shap_ready, DEFAULT_MODEL_PATH
+
+    "shap": "ready" if is_shap_ready(DEFAULT_MODEL_PATH) else "fallback"
+
+2) build_shap_explanation() — 실제 SHAP 반환:
+
+    from src.rl.shap import compute_shap_explanation, DEFAULT_MODEL_PATH
+
+    try:
+        features_df = pd.read_parquet("data/processed/features.parquet")
+        returns_df  = pd.read_parquet("data/processed/returns.parquet")
+        result = compute_shap_explanation(
+            model_path=DEFAULT_MODEL_PATH,
+            features_df=features_df,
+            returns_df=returns_df,
+            date=date,        # ExplainRequest.date
+            top_k=top_k,      # ExplainRequest.top_k
+        )
+        return ExplainResponse(
+            status="ready",
+            date=date,
+            target_date=result["target_date"],
+            base_value=result["base_value"],
+            prediction=result["prediction"],
+            feature_contributions=[
+                FeatureContribution(**fc) for fc in result["feature_contributions"]
+            ],
+            feature_names=result["feature_names"],
+            shap_values=result["shap_values"],
+            message="PPO SHAP 분석 완료.",
+        )
+    except Exception:
+        return build_fallback_explanation(date, top_k)
 """
 
 from __future__ import annotations
@@ -50,6 +69,35 @@ DEFAULT_ASSET_NAMES: list[str] = [
     "SPY", "QQQ", "IWM", "EFA", "EEM",
     "TLT", "GLD", "VNQ", "069500", "114260",
 ]
+
+# 기본 모델 경로 (labels_and_interfaces.md 3-3절, reward_analysis_report.md 8절 참고)
+# sharpe 보상이 4개 윈도우 전체에서 누적수익률·샤프비율·알파 최상위
+# _risk 접미사: obs_dim=333 (risk_vector 포함) 환경으로 학습된 모델
+DEFAULT_MODEL_PATH: Path = Path("models/ppo_sharpe_final_risk.zip")
+
+
+def is_shap_ready(model_path: str | Path = DEFAULT_MODEL_PATH) -> bool:
+    """SHAP 모듈과 PPO 모델이 사용 가능한지 확인합니다.
+
+    services.py의 build_module_statuses()에서 "shap" 상태를 판단할 때 사용합니다.
+
+    Args:
+        model_path: 확인할 PPO 모델 파일 경로. 기본값은 DEFAULT_MODEL_PATH.
+
+    Returns:
+        True: shap·stable-baselines3·torch 모두 import 가능하고
+              model_path 파일이 존재할 때.
+        False: 그 외 모든 경우.
+    """
+    if not Path(model_path).exists():
+        return False
+    try:
+        import shap  # noqa: F401
+        import torch  # noqa: F401
+        from stable_baselines3 import PPO  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def get_feature_names(asset_names: list[str], lookback: int = 30) -> list[str]:
@@ -167,7 +215,11 @@ def _make_value_predict_fn(model: Any) -> Any:
             tensor_obs = th.FloatTensor(obs).unsqueeze(0).to(model.device)
             with th.no_grad():
                 value = model.policy.predict_values(tensor_obs)
-            results.append(float(value.cpu().numpy().item()))
+            val = float(value.cpu().numpy().item())
+            # KernelExplainer의 perturbation이 obs 분포 밖 샘플을 생성할 때
+            # 가치함수가 발산하는 것을 방지하기 위한 클리핑
+            val = float(np.clip(val, -1000.0, 1000.0))
+            results.append(val)
         return np.array(results, dtype=np.float64)
 
     return predict_fn
@@ -205,14 +257,17 @@ def compute_shap_explanation(
         nsamples: KernelExplainer perturbation 샘플 수.
 
     Returns:
-        ExplainResponse 스키마 호환 dict:
-            - target_date (str)
-            - base_value (float)
-            - prediction (float)
+        ExplainResponse 스키마와 1:1 대응하는 dict:
+            - status (str): "ready"
+            - date (str | None): 요청 날짜 (입력 그대로 echo)
+            - target_date (str): 실제 사용된 데이터 날짜
+            - base_value (float): SHAP base value (모델 평균 예측값)
+            - prediction (float): base_value + sum(shap_values)
             - feature_contributions (list[dict]):
                   각 dict = {"feature": str, "value": float, "contribution": float}
-            - feature_names (list[str])
-            - shap_values (list[float])
+            - feature_names (list[str]): top_k 피처명 (|SHAP| 내림차순)
+            - shap_values (list[float]): top_k SHAP 값
+            - message (str)
 
     Raises:
         FileNotFoundError: model_path가 존재하지 않을 때.
@@ -253,30 +308,33 @@ def compute_shap_explanation(
     raw_shap = explainer.shap_values(
         target_obs.reshape(1, -1), nsamples=nsamples, silent=True
     )
-    shap_values = np.array(raw_shap).flatten()
+    shap_values_arr = np.array(raw_shap).flatten()
 
     base_value = float(explainer.expected_value)
-    prediction = float(base_value + shap_values.sum())
+    prediction = float(base_value + shap_values_arr.sum())
 
     # |SHAP| 내림차순 top_k 추출
-    top_indices = np.argsort(np.abs(shap_values))[::-1][:top_k]
+    top_indices = np.argsort(np.abs(shap_values_arr))[::-1][:top_k]
 
     feature_contributions = [
         {
             "feature": feature_names[i],
             "value": round(float(target_obs[i]), 6),
-            "contribution": round(float(shap_values[i]), 6),
+            "contribution": round(float(shap_values_arr[i]), 6),
         }
         for i in top_indices
     ]
 
     return {
+        "status": "ready",
+        "date": date,
         "target_date": target_date,
         "base_value": round(base_value, 6),
         "prediction": round(prediction, 6),
         "feature_contributions": feature_contributions,
         "feature_names": [fc["feature"] for fc in feature_contributions],
         "shap_values": [fc["contribution"] for fc in feature_contributions],
+        "message": f"PPO SHAP 분석 완료 (기준일: {target_date}, top_k={top_k}).",
     }
 
 
@@ -288,7 +346,7 @@ def generate_summary_plot(
     lookback: int = 30,
     n_samples: int = 100,
     background_size: int = 50,
-    nsamples_per_obs: int = 50,
+    nsamples_per_obs: int = 100,
     save_path: str | Path | None = None,
 ) -> None:
     """SHAP Summary Plot을 생성합니다.
@@ -352,8 +410,10 @@ def generate_summary_plot(
     )
 
     if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(str(save_path), bbox_inches="tight", dpi=150)
         plt.close()
+        print(f"Summary Plot 저장 완료: {save_path}")
 
 
 def generate_force_plot(
@@ -367,10 +427,12 @@ def generate_force_plot(
     nsamples: int = 100,
     save_path: str | Path | None = None,
 ) -> None:
-    """SHAP Force Plot을 생성합니다 (단일 관측 설명).
+    """SHAP Force Plot을 HTML로 생성합니다 (단일 관측 설명).
 
     특정 날짜의 관측값에 대해 각 피처가 모델의 가치 판단에
-    어떻게 기여했는지를 시각화합니다.
+    어떻게 기여했는지를 인터랙티브 HTML로 저장합니다.
+
+    저장 경로 기본값: data/results/shap_force_<target_date>.html
 
     Args:
         model_path: 저장된 PPO 모델 경로 (.zip).
@@ -381,13 +443,12 @@ def generate_force_plot(
         lookback: 관측 윈도우 길이.
         background_size: KernelExplainer 배경 샘플 수.
         nsamples: perturbation 샘플 수.
-        save_path: 저장 경로 (PNG). None이면 화면 출력.
+        save_path: 저장 경로 (.html). None이면 data/results/shap_force_<date>.html.
 
     Raises:
         ImportError: shap 또는 stable-baselines3가 설치되지 않았을 때.
     """
     import shap
-    import matplotlib.pyplot as plt
     from stable_baselines3 import PPO
     from src.rl.env import PortfolioEnv
 
@@ -397,7 +458,7 @@ def generate_force_plot(
     features_aligned = features_df.loc[common_index]
     returns_aligned = returns_df.loc[common_index]
 
-    target_step, _ = _resolve_target_step(features_aligned, date, lookback)
+    target_step, target_date = _resolve_target_step(features_aligned, date, lookback)
 
     env = PortfolioEnv(
         returns_df=returns_aligned,
@@ -422,15 +483,20 @@ def generate_force_plot(
     )
     shap_values = np.array(raw_shap).flatten()
 
-    shap.force_plot(
+    # Force Plot은 HTML(인터랙티브)로 저장
+    force = shap.force_plot(
         explainer.expected_value,
         shap_values,
         features=target_obs,
         feature_names=feature_names,
-        matplotlib=True,
-        show=save_path is None,
+        matplotlib=False,
     )
 
-    if save_path is not None:
-        plt.savefig(str(save_path), bbox_inches="tight", dpi=150)
-        plt.close()
+    results_dir = Path("data/results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    html_path = Path(save_path) if save_path is not None else (
+        results_dir / f"shap_force_{target_date}.html"
+    )
+    shap.save_html(str(html_path), force)
+    print(f"Force Plot 저장 완료: {html_path}")
