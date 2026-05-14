@@ -142,6 +142,38 @@ def test_backtest_returns_metrics_and_anova_results() -> None:
     assert len(payload["rewards"]) > 0
     assert payload["safeguard"]["active"] is False
     assert payload["safeguard"]["triggered_at"] is None
+    assert all(isinstance(item["post_hoc"], list) for item in payload["anova"])
+
+
+def test_backtest_accepts_window_query_parameter() -> None:
+    """GET /backtest should accept the documented walk-forward window query."""
+    response = client.get("/backtest", params={"window": "w1"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fallback"
+    assert payload["dates"][0].startswith("2022-")
+    assert payload["dates"][-1].startswith("2022-")
+
+
+def test_backtest_window_changes_returned_period() -> None:
+    """GET /backtest should return different test-period data for each window."""
+    w1 = client.get("/backtest", params={"window": "w1"}).json()
+    final = client.get("/backtest", params={"window": "final"}).json()
+
+    assert w1["dates"][0] != final["dates"][0]
+    assert w1["dates"][0].startswith("2022-")
+    assert final["dates"][0].startswith("2025-")
+    assert w1["metrics"] != final["metrics"]
+
+
+def test_openapi_schema_does_not_expose_removed_stress_endpoint() -> None:
+    """Swagger/OpenAPI should not include a separate /backtest/stress endpoint."""
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/backtest/stress" not in paths
 
 
 def test_openapi_schema_contains_sprint2_endpoints() -> None:

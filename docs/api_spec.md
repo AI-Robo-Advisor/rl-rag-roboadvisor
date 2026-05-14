@@ -1,7 +1,7 @@
 # AI 로보어드바이저 API 명세서
 
 > **버전**: v0.3.0 (Sprint 3 기준)  
-> **작성일**: 2026-05-12  
+> **작성일**: 2026-05-13
 > **대상**: 박지민(백엔드), 강유영(대시보드·분석), 이문정(RL·인프라)
 
 ---
@@ -16,7 +16,6 @@
    - [POST /explain](#33-post-explain)
    - [POST /research](#34-post-research)
    - [GET /backtest](#35-get-backtest)
-   - [GET /backtest/stress](#36-get-backtessstress-sprint-3-신규) *(Sprint 3 신규)*
 4. [스키마 정의](#4-스키마-정의)
 5. [Sprint 3 통합 목표](#5-sprint-3-통합-목표)
 6. [알려진 불일치 및 수정 계획](#6-알려진-불일치-및-수정-계획)
@@ -338,6 +337,7 @@ Walk-Forward 백테스트 성과 지표 및 ANOVA 검증 결과 반환.
 
 > `window` 파라미터는 Sprint 3에서 추가. Sprint 2 현재는 파라미터 무시하고 전체 기간 데이터 반환.  
 > 모델 파일 네이밍·Safe-Guard 임계값 상세 → `docs/labels_and_interfaces.md` 3-3·3-5 참고.
+> 별도 `GET /backtest/stress`는 두지 않고, 2022 금리 충격 핵심 OOS 구간은 `window=w1`로 조회한다.
 
 #### 응답 `200 OK`
 
@@ -514,76 +514,6 @@ date,episode_return
 
 ---
 
-### 3.6 GET /backtest/stress *(Sprint 3 신규)*
-
-2022년 금리 충격 구간(2022-01-01 ~ 2022-12-31) 스트레스 테스트.  
-코로나(2020)는 전체 학습 데이터에 포함(in-sample)되어 있으므로, **W1 모델(학습 2018~2021)이 금리 인상 패턴을 학습하지 않은** 2022년이 실질적 OOS 위기 구간이다.  
-금리 급등·주식채권 동반 하락장에서의 Safe-Guard 작동 여부를 검증한다.
-
-**담당**: 강유영 (`src/rl/backtest.py`), 박지민 (API 라우터 추가)
-
-#### 요청
-
-파라미터 없음.
-
-#### 응답 `200 OK`
-
-```json
-{
-  "status": "ready",
-  "period": {
-    "start": "2022-01-01",
-    "end":   "2022-12-31"
-  },
-  "metrics": {
-    "cumulative_return":     -0.183,
-    "mdd":                    0.312,
-    "var_95":                 0.041,
-    "cvar_95":                0.058,
-    "sharpe_ratio":          -1.24
-  },
-  "benchmark_metrics": {
-    "cumulative_return":     -0.342,
-    "mdd":                    0.381,
-    "var_95":                 0.052,
-    "cvar_95":                0.073,
-    "sharpe_ratio":          -2.01
-  },
-  "safeguard_events": [
-    {
-      "triggered_at":    "2022-06-13",
-      "drawdown_at_trigger": 0.163,
-      "resumed_at":      null
-    }
-  ],
-  "dates":     ["2022-01-03", "2022-01-04", "..."],
-  "ppo_cum":   [0.998, 0.991, "..."],
-  "bm_cum":    [0.997, 0.987, "..."],
-  "drawdown":  [-0.002, -0.009, "..."],
-  "message":   "2022년 금리 충격 구간 스트레스 테스트 결과입니다."
-}
-```
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `period` | `{start, end}` | 스트레스 테스트 기간 |
-| `metrics` | `dict[str, float]` | PPO 포트폴리오 지표 (5개) |
-| `benchmark_metrics` | `dict[str, float]` | SPY 벤치마크 동일 기간 지표 |
-| `safeguard_events` | `list[SafeguardEvent]` | Safe-Guard 발동·재개 이벤트 목록 |
-| `dates` / `ppo_cum` / `bm_cum` / `drawdown` | `list[float]` | 시계열 (동일 길이) |
-
-각 `SafeguardEvent`:
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `triggered_at` | `str` | Safe-Guard 발동 날짜 |
-| `drawdown_at_trigger` | `float` | 발동 시점 낙폭 (임계값 15% 근접) |
-| `resumed_at` | `str \| null` | 재개 날짜 (기간 내 재개 없으면 null) |
-
-> **fallback 처리**: `data/results/` 파일 없으면 `status: "fallback"`, 모든 수치 0, 빈 배열 반환.
-
----
-
 ## 4. 스키마 정의
 
 ```python
@@ -607,23 +537,6 @@ class AnovaResult(BaseModel):
     post_hoc:    list[TukeyRow]            # ← Sprint 3에서 str → list[TukeyRow] 변경
     interaction:     dict | None = None   # Two-way 전용 (market_regime_comparison)
     strategy_effect: dict | None = None   # Two-way 전용 (market_regime_comparison)
-
-class SafeguardEvent(BaseModel):    # Sprint 3 신규
-    triggered_at:        str
-    drawdown_at_trigger: float
-    resumed_at:          str | None
-
-class StressTestResponse(BaseModel):  # Sprint 3 신규
-    status:            EndpointStatus
-    period:            dict[str, str]
-    metrics:           dict[str, float]
-    benchmark_metrics: dict[str, float]
-    safeguard_events:  list[SafeguardEvent]
-    dates:             list[str]
-    ppo_cum:           list[float]
-    bm_cum:            list[float]
-    drawdown:          list[float]
-    message:           str
 ```
 
 > 나머지 스키마(`OptimizeRequest`, `OptimizeResponse`, `ExplainRequest`, `ExplainResponse`,  
@@ -638,7 +551,6 @@ class StressTestResponse(BaseModel):  # Sprint 3 신규
 | `POST /optimize` | 박지민 | PPO 비중 실제 반환 | `models/ppo_*.zip` |
 | `POST /explain` | 박지민 + 이문정 | SHAP 값 실제 반환 | `src/rl/shap.py` |
 | `GET /backtest` | 박지민 + 강유영 | walk-forward 실측 결과 반환 | `src/rl/metrics.py`, `src/rl/anova.py`, `data/results/` |
-| `GET /backtest/stress` | 박지민 + 강유영 | 스트레스 테스트 신규 추가 | `src/rl/backtest.py` |
 | `GET /backtest` | 박지민 | `window` 쿼리 파라미터 지원 | — |
 | `schemas.py` | 박지민 | `AnovaResult.post_hoc: list[TukeyRow]` 변경 | — |
 | `apps/dashboard/app.py` | 강유영 | ANOVA 탭 `list[AnovaResult]` 처리로 업데이트 | — |
@@ -691,7 +603,8 @@ _TIMEOUT_RESEARCH: int = 60   # LangGraph 루프 최대 3회
 현재 `GET /backtest`는 파라미터 없음. Sprint 3에서 `?window=w1|w2|w3|final` 추가 예정.  
 대시보드도 사이드바 selectbox로 윈도우 선택 UI를 추가해야 한다.  
 Walk-Forward 윈도우는 총 4개(`src/rl/backtest.py`의 `WINDOWS` 상수 참고).
+2022 금리 충격 핵심 OOS 구간 조회는 별도 stress API 대신 `window=w1`로 처리한다.
 
 ---
 
-*최종 업데이트: 2026-05-12 / 작성: 강유영*
+*최종 업데이트: 2026-05-13 / 작성: 강유영*

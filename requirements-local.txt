@@ -1,0 +1,15 @@
+# Local all-in-one environment for developers who want a single install.
+# Keep service images on split requirements files; use this only for local virtualenv setup.
+-r requirements-api.txt
+-r requirements-dashboard.txt
+-r requirements-train.txt
+
+#.venv/bin/pip install -r requirements-local.txt
+
+# Local developer tools
+pytest==9.0.3
+black==25.1.0
+flake8==7.3.0
+isort==6.0.1
+mysql-connector-python==9.6.0
+setuptools>=70,<71

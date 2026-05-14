@@ -16,18 +16,29 @@ import pandas as pd
 from apps.api.config import settings
 from apps.api.schemas import (
     AnovaResult,
+    BacktestWindow,
     BacktestResponse,
     ExplainResponse,
     FeatureContribution,
+    InteractionStats,
     OptimizeResponse,
     ReturnSeries,
     ResearchResponse,
     RiskProfile,
+    SafeguardState,
+    StrategyEffectStats,
+    TukeyRow,
 )
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
 TRADING_DAYS = 252
+WINDOW_PERIODS: dict[BacktestWindow, tuple[str, str]] = {
+    "w1": ("2022-01-01", "2022-12-31"),
+    "w2": ("2023-01-01", "2023-12-31"),
+    "w3": ("2024-01-01", "2024-12-31"),
+    "final": ("2025-01-01", "2025-12-31"),
+}
 
 DEFAULT_TICKERS: list[str] = [
     "SPY",
@@ -145,9 +156,9 @@ def build_fallback_research(question: str) -> ResearchResponse:
     )
 
 
-def build_fallback_backtest() -> BacktestResponse:
+def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestResponse:
     """Return metric output from available data plus fallback ANOVA summaries."""
-    metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload()
+    metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload(window)
     anova = _fallback_anova()
     current_mdd = float(metrics.get("mdd", 0.0))
     return BacktestResponse(
@@ -165,12 +176,15 @@ def build_fallback_backtest() -> BacktestResponse:
         var_95=float(metrics.get("var_95", 0.0)),
         cvar_95=float(metrics.get("cvar_95", 0.0)),
         mdd=current_mdd,
-        safeguard={
-            "active": False,
-            "triggered_at": None,
-            "current_drawdown": abs(drawdown[-1]) if drawdown else current_mdd,
-        },
-        message="Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다.",
+        safeguard=SafeguardState(
+            active=False,
+            triggered_at=None,
+            current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
+        ),
+        message=(
+            f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. "
+            f"(window={window})"
+        ),
     )
 
 
@@ -321,7 +335,7 @@ def _latest_feature_date() -> str | None:
         return None
 
 
-def _build_backtest_payload() -> tuple[
+def _build_backtest_payload(window: BacktestWindow) -> tuple[
     dict[str, float],
     list[str],
     list[float],
@@ -332,15 +346,19 @@ def _build_backtest_payload() -> tuple[
 ]:
     """Use returns.parquet and metrics.py when available; otherwise return deterministic fallback."""
     try:
-        from src.rl.metrics import calculate_all_metrics
-
         returns = pd.read_parquet(RETURNS_PATH)
         if returns.empty:
             raise ValueError("returns.parquet is empty")
 
-        portfolio_returns = returns.mean(axis=1)
-        benchmark_returns = returns["SPY"] if "SPY" in returns.columns else returns.iloc[:, 0]
-        metrics = _finite_metrics(calculate_all_metrics(portfolio_returns, benchmark_returns))
+        windowed_returns = _slice_backtest_window(returns, window)
+        if windowed_returns.empty:
+            raise ValueError(f"returns.parquet has no rows for window={window}")
+
+        portfolio_returns = windowed_returns.mean(axis=1)
+        benchmark_returns = (
+            windowed_returns["SPY"] if "SPY" in windowed_returns.columns else windowed_returns.iloc[:, 0]
+        )
+        metrics = _metrics_from_returns(portfolio_returns, benchmark_returns)
 
         wf_cum_array = np.exp(portfolio_returns.cumsum())
         bm_cum_array = np.exp(benchmark_returns.cumsum())
@@ -351,7 +369,7 @@ def _build_backtest_payload() -> tuple[
 
         return (
             metrics,
-            [index.strftime("%Y-%m-%d") for index in returns.index],
+            [index.strftime("%Y-%m-%d") for index in windowed_returns.index],
             _finite_float_list(wf_cum_array),
             _finite_float_list(bm_cum_array),
             _finite_float_list(rewards_array),
@@ -359,10 +377,10 @@ def _build_backtest_payload() -> tuple[
             sharpe_spark,
         )
     except (OSError, ValueError, KeyError, ImportError):
-        return _static_backtest_payload()
+        return _static_backtest_payload(window)
 
 
-def _static_backtest_payload() -> tuple[
+def _static_backtest_payload(window: BacktestWindow) -> tuple[
     dict[str, float],
     list[str],
     list[float],
@@ -371,27 +389,24 @@ def _static_backtest_payload() -> tuple[
     list[float],
     list[float],
 ]:
-    """Return deterministic backtest data when local returns are unavailable."""
-    dates = pd.date_range("2024-01-01", periods=252, freq="B")
-    portfolio_returns = pd.Series(np.full(len(dates), 0.00035), index=dates)
-    benchmark_returns = pd.Series(np.full(len(dates), 0.0002), index=dates)
+    """Return deterministic backtest data for the requested walk-forward test window."""
+    start, end = WINDOW_PERIODS[window]
+    dates = pd.date_range(start, end, freq="B")
+    drifts = {
+        "w1": (-0.00045, -0.0007),
+        "w2": (0.0005, 0.00035),
+        "w3": (0.0007, 0.00048),
+        "final": (0.0004, 0.0003),
+    }
+    portfolio_drift, benchmark_drift = drifts[window]
+    seasonal = np.sin(np.linspace(0.0, 8.0 * np.pi, len(dates))) * 0.0012
+    benchmark_seasonal = np.cos(np.linspace(0.0, 7.0 * np.pi, len(dates))) * 0.0009
+    portfolio_returns = pd.Series(portfolio_drift + seasonal, index=dates)
+    benchmark_returns = pd.Series(benchmark_drift + benchmark_seasonal, index=dates)
     wf_cum = np.exp(portfolio_returns.cumsum())
     bm_cum = np.exp(benchmark_returns.cumsum())
     drawdown = (wf_cum - np.maximum.accumulate(wf_cum)) / np.maximum.accumulate(wf_cum)
-    metrics = {
-        "cumulative_return": 0.092,
-        "cagr": 0.092,
-        "annualized_volatility": 0.0,
-        "var_95": 0.0,
-        "cvar_95": 0.0,
-        "mdd": 0.0,
-        "sharpe_ratio": 0.0,
-        "sortino_ratio": 0.0,
-        "calmar_ratio": 0.0,
-        "alpha": 0.038,
-        "beta": 0.0,
-        "information_ratio": 0.0,
-    }
+    metrics = _metrics_from_returns(portfolio_returns, benchmark_returns)
     return (
         metrics,
         [item.strftime("%Y-%m-%d") for item in dates],
@@ -403,6 +418,22 @@ def _static_backtest_payload() -> tuple[
     )
 
 
+def _slice_backtest_window(returns: pd.DataFrame, window: BacktestWindow) -> pd.DataFrame:
+    """Slice raw return rows to the documented walk-forward test period."""
+    start, end = WINDOW_PERIODS[window]
+    return returns.loc[start:end]
+
+
+def _metrics_from_returns(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+) -> dict[str, float]:
+    """Compute JSON-safe metrics from a portfolio and benchmark return series."""
+    from src.rl.metrics import calculate_all_metrics
+
+    return _finite_metrics(calculate_all_metrics(portfolio_returns, benchmark_returns))
+
+
 def _fallback_anova() -> list[AnovaResult]:
     """Return the three planned ANOVA fallback summaries."""
     return [
@@ -411,21 +442,74 @@ def _fallback_anova() -> list[AnovaResult]:
             f_statistic=3.12,
             p_value=0.041,
             eta_squared=0.18,
-            post_hoc="Tukey HSD pending full experiment output.",
+            post_hoc=[
+                TukeyRow(
+                    group1="PPO-return",
+                    group2="PPO-sharpe",
+                    meandiff=0.021,
+                    p_adj=0.032,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO-return",
+                    group2="PPO-mdd",
+                    meandiff=0.009,
+                    p_adj=0.210,
+                    reject=False,
+                ),
+                TukeyRow(
+                    group1="PPO-sharpe",
+                    group2="PPO-mdd",
+                    meandiff=0.012,
+                    p_adj=0.089,
+                    reject=False,
+                ),
+            ],
         ),
         AnovaResult(
             name="strategy_comparison",
             f_statistic=4.36,
             p_value=0.028,
             eta_squared=0.22,
-            post_hoc="DRL vs MVO vs equal-weight placeholder comparison.",
+            post_hoc=[
+                TukeyRow(
+                    group1="PPO",
+                    group2="MVO",
+                    meandiff=0.031,
+                    p_adj=0.002,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO",
+                    group2="동일비중",
+                    meandiff=0.018,
+                    p_adj=0.041,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="MVO",
+                    group2="동일비중",
+                    meandiff=0.013,
+                    p_adj=0.312,
+                    reject=False,
+                ),
+            ],
         ),
         AnovaResult(
             name="market_regime_comparison",
             f_statistic=2.07,
             p_value=0.096,
             eta_squared=0.11,
-            post_hoc="p >= 0.05; report effect size interpretation.",
+            post_hoc=[],
+            interaction=InteractionStats(
+                f_statistic=3.14,
+                p_value=0.021,
+                significant=True,
+            ),
+            strategy_effect=StrategyEffectStats(
+                f_statistic=4.52,
+                p_value=0.011,
+            ),
         ),
     ]
 

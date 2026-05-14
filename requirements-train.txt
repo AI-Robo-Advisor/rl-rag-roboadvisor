@@ -1,0 +1,20 @@
+# RL training and offline analysis dependencies only.
+# Dockerfile.train is intentionally not added yet.
+# For now, use this file from a local virtualenv when running training/backtest/SHAP jobs.
+yfinance==0.2.66
+pykrx==1.0.51
+feedparser==6.0.12
+beautifulsoup4==4.14.3
+lxml==6.0.2
+python-dotenv==1.2.2
+pandas==2.3.2
+numpy==2.2.6
+pandas-ta-classic==0.4.47
+pyarrow==19.0.1
+fastparquet==2024.11.0
+curl_cffi==0.11.1
+gymnasium[classic-control]==1.2.3
+stable-baselines3==2.8.0
+tensorboard==2.16.2
+scipy>=1.12.0
+statsmodels>=0.14.0
