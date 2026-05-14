@@ -8,6 +8,7 @@ API 미완성 상태에서는 mock 데이터로 UI를 렌더링합니다.
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -460,7 +461,7 @@ def research_page() -> None:
 
     question = st.text_area(
         "투자 질문 입력",
-        placeholder="예: 삼성전자 HBM 반도체 실적 전망은? (Enter=실행, Shift+Enter=줄바꿈)",
+        placeholder="ex. 삼성전자 HBM 반도체 실적 전망은?",
         height=80,
     )
 
@@ -515,7 +516,10 @@ def research_page() -> None:
             with col1:
                 with st.container(border=True):
                     st.markdown("**분석 리포트**")
-                    st.markdown(res["report"])
+                    report_text = re.sub(
+                        r'\(출처: ([^)\n]+)$', r'(출처: \1)', res["report"], flags=re.MULTILINE
+                    )
+                    st.markdown(report_text)
             with col2:
                 with st.container(border=True):
                     st.markdown("**출처 URL**")
