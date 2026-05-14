@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 RiskProfile = Literal["conservative", "balanced", "aggressive"]
 EndpointStatus = Literal["ready", "fallback", "unavailable"]
+BacktestWindow = Literal["w1", "w2", "w3", "final"]
 
 
 class ApiStatus(BaseModel):
@@ -99,6 +100,31 @@ class ResearchResponse(BaseModel):
     risk_tags: list[str]
 
 
+class TukeyRow(BaseModel):
+    """One Tukey HSD comparison row."""
+
+    group1: str
+    group2: str
+    meandiff: float
+    p_adj: float
+    reject: bool
+
+
+class InteractionStats(BaseModel):
+    """Two-way ANOVA interaction summary."""
+
+    f_statistic: float
+    p_value: float
+    significant: bool
+
+
+class StrategyEffectStats(BaseModel):
+    """Two-way ANOVA strategy main effect summary."""
+
+    f_statistic: float
+    p_value: float
+
+
 class AnovaResult(BaseModel):
     """ANOVA summary row."""
 
@@ -106,7 +132,17 @@ class AnovaResult(BaseModel):
     f_statistic: float
     p_value: float
     eta_squared: float
-    post_hoc: str
+    post_hoc: list[TukeyRow]
+    interaction: InteractionStats | None = None
+    strategy_effect: StrategyEffectStats | None = None
+
+
+class SafeguardState(BaseModel):
+    """Safe-Guard runtime state for backtest summaries."""
+
+    active: bool
+    triggered_at: str | None
+    current_drawdown: float
 
 
 class BacktestResponse(BaseModel):
@@ -126,5 +162,5 @@ class BacktestResponse(BaseModel):
     var_95: float
     cvar_95: float
     mdd: float
-    safeguard: dict[str, bool | float | str | None]
+    safeguard: SafeguardState
     message: str

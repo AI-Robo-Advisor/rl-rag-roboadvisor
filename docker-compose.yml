@@ -1,6 +1,6 @@
-version: "3.9"
-
 services:
+  # Training/backtest batch container is not defined yet.
+  # When the team needs reproducible RL jobs in Docker, add Dockerfile.train and a train service/profile.
   api:
     build:
       context: .
