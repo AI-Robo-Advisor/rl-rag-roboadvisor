@@ -27,7 +27,8 @@ except ModuleNotFoundError:
 # ─────────────────────────────────────────────
 
 API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
-REQUEST_TIMEOUT: int = 10
+_TIMEOUT_DEFAULT: int = 10
+_TIMEOUT_RESEARCH: int = 60  # LangGraph 루프 최대 3회 대응
 
 _PALETTE = ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de",
             "#3ba272", "#fc8452", "#9a60b4", "#ea7ccc", "#48b8d0"]
@@ -44,17 +45,17 @@ def _get(endpoint: str, params: dict | None = None) -> dict[str, Any] | None:
         API_BASE_URL,
         endpoint,
         params=params,
-        timeout=REQUEST_TIMEOUT,
+        timeout=_TIMEOUT_DEFAULT,
         warn=st.warning,
     )
 
 
-def _post(endpoint: str, payload: dict) -> dict[str, Any] | None:
+def _post(endpoint: str, payload: dict, timeout: int = _TIMEOUT_DEFAULT) -> dict[str, Any] | None:
     return post_json(
         API_BASE_URL,
         endpoint,
         payload,
-        timeout=REQUEST_TIMEOUT,
+        timeout=timeout,
         warn=st.warning,
     )
 
@@ -454,8 +455,8 @@ def research_page() -> None:
         if not question.strip():
             st.error("질문을 입력하세요.")
         else:
-            with st.spinner("POST /research 호출 중 (최대 30초)…"):
-                res = _post("/research", {"question": question}) or _mock_research(question)
+            with st.spinner("POST /research 호출 중 (최대 60초)…"):
+                res = _post("/research", {"question": question}, timeout=_TIMEOUT_RESEARCH) or _mock_research(question)
 
             col1, col2 = st.columns([2, 1])
             with col1:
