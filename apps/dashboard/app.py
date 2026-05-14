@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from datetime import date, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
@@ -271,6 +272,7 @@ def portfolio_page() -> None:
             min_value=0.5, max_value=5.0, value=1.0, step=0.5,
             help="값이 클수록 분산 투자 비중 증가",
         )
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3)
 
     st.title("포트폴리오 현황")
 
@@ -330,6 +332,15 @@ def portfolio_page() -> None:
 
 
 def rl_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="rl_period")
+        strategies: list[str] = st.multiselect(
+            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            help="강화학습 성과 탭에서 비교할 전략",
+        )
+
     st.title("강화학습 성과")
     with st.spinner("GET /backtest 호출 중…"):
         bt = _get("/backtest") or _mock_backtest()
@@ -449,9 +460,43 @@ def research_page() -> None:
 
     question = st.text_area(
         "투자 질문 입력",
-        placeholder="예: 삼성전자 HBM 반도체 실적 전망은?",
+        placeholder="예: 삼성전자 HBM 반도체 실적 전망은? (Enter=실행, Shift+Enter=줄바꿈)",
         height=80,
     )
+
+    # Enter → 리서치 실행, Shift+Enter → 줄바꿈
+    st.components.v1.html("""
+    <script>
+    (function() {
+        function attachHandler() {
+            const textareas = window.parent.document.querySelectorAll('textarea');
+            textareas.forEach(function(ta) {
+                if (ta._researchBound) return;
+                ta._researchBound = true;
+                ta.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        ta.blur();
+                        setTimeout(function() {
+                            const buttons = window.parent.document.querySelectorAll('button');
+                            for (const btn of buttons) {
+                                if (btn.innerText.trim() === '리서치 실행') {
+                                    btn.click();
+                                    break;
+                                }
+                            }
+                        }, 100);
+                    }
+                });
+            });
+        }
+        attachHandler();
+        new MutationObserver(attachHandler).observe(
+            window.parent.document.body, { childList: true, subtree: true }
+        );
+    })();
+    </script>
+    """, height=0)
 
     if st.button("리서치 실행", key="btn_research"):
         if not question.strip():
@@ -475,7 +520,8 @@ def research_page() -> None:
                 with st.container(border=True):
                     st.markdown("**출처 URL**")
                     for url in res.get("sources", []):
-                        st.markdown(f"- [{url}]({url})")
+                        domain = urlparse(url).netloc or url
+                        st.markdown(f"- [{domain}]({url})")
                 with st.container(border=True):
                     st.markdown("**리스크 태그**")
                     tags = res.get("risk_tags", [])
@@ -492,6 +538,14 @@ def research_page() -> None:
 
 
 def anova_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        strategies: list[str] = st.multiselect(
+            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            help="사후 검정 결과 필터",
+        )
+
     st.title("ANOVA 검증 결과")
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
@@ -552,6 +606,11 @@ def anova_page() -> None:
 
 
 def risk_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="risk_period")
+
     st.title("리스크 모니터링")
     with st.spinner("GET /backtest 호출 중…"):
         bt6 = _get("/backtest") or _mock_backtest()
@@ -615,6 +674,25 @@ def risk_page() -> None:
 
 st.set_page_config(page_title="AI Robo Advisor", layout="wide", page_icon="📈")
 
+st.markdown("""
+<style>
+/* 기본 running 인디케이터(운동하는 사람) 숨기고 🌀 이모지로 교체 */
+@keyframes spin { to { transform: rotate(360deg); } }
+[data-testid="stStatusWidget"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px;
+}
+[data-testid="stStatusWidget"] svg { display: none !important; }
+[data-testid="stStatusWidget"]::before {
+    content: "🌀";
+    font-size: 18px;
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 네비게이션 (템플릿과 동일한 st.navigation + st.Page 방식)
 pg = st.navigation([
     st.Page(portfolio_page, title="포트폴리오 현황", icon=":material/pie_chart:",   default=True),
@@ -625,21 +703,7 @@ pg = st.navigation([
     st.Page(risk_page,      title="리스크 모니터링", icon=":material/shield:"),
 ])
 
-# 네비게이션 아래 전역 필터 (템플릿 Filters 패턴)
 with st.sidebar:
-    st.divider()
-    st.subheader(":material/filter_alt: Filters")
-    period: str = st.selectbox(
-        "분석 기간",
-        list(_PERIOD_MONTHS.keys()),
-        index=3,
-    )
-    strategies: list[str] = st.multiselect(
-        "비교 전략",
-        ["PPO", "MVO", "동일비중"],
-        default=["PPO"],
-        help="강화학습 성과·ANOVA 탭에서 비교할 전략",
-    )
     st.divider()
     st.caption(f"API: `{API_BASE_URL}`")
     st.caption("FastAPI 미연결 시 mock 데이터로 렌더링됩니다.")
