@@ -155,8 +155,7 @@ def _echarts_gauge(
 # Mock 데이터
 # ─────────────────────────────────────────────
 
-_ASSETS = ["삼성전자", "SK하이닉스", "NAVER", "카카오", "현대차",
-           "LG에너솔", "POSCO홀딩스", "삼성SDI", "KB금융", "셀트리온"]
+_ASSETS = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"]
 _rng = np.random.default_rng(42)
 
 
@@ -227,8 +226,11 @@ def _mock_backtest() -> dict:
 
 
 def _mock_explain(target_date: str) -> dict:
-    feat = ["RSI_14", "MACD", "MACD_signal", "BB_width", "log_return_1d",
-            "log_return_5d", "volume_ratio", "gold_corr", "krw_usd", "기준금리"]
+    feat = [
+        f"{t}_{f}"
+        for t in _ASSETS
+        for f in ("return", "RSI", "MACD", "MACD_signal")
+    ]
     vals = _rng.normal(0, 0.05, len(feat)).tolist()
     base = 0.002
     return {"target_date": target_date, "feature_names": feat,
