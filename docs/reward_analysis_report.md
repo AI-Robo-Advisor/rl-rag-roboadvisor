@@ -104,7 +104,7 @@ self.current_mdd = (
 | n_steps (rollout buffer) | 2,048 |
 | batch_size | 64 |
 | n_epochs | 10 |
-| 총 학습 스텝 | 50,000 |
+| 총 학습 스텝 | 100_000 |
 | 관측공간 차원 | 330 (= (lookback 30 + 3) × 10 자산) |
 | 액션공간 | `Box(0.0, 1.0, shape=(10,))` → softmax 정규화 |
 
