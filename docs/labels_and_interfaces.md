@@ -55,11 +55,11 @@ date,regime
 ### 데이터 파이프라인 내 위치
 
 ```
-[returns/features.parquet 생성]  ← 박지민
+[returns/raw_features.parquet 생성]  ← 박지민
         ↓
 [regime_labels.csv 생성]          ← 날짜 기반 생성 (강유영, src/rl/anova.py)
         ↓
-[RL 학습] features.parquet만 사용  ← regime 레이블 투입 안 함
+[RL 학습] raw_features를 window별 train 통계로 정규화  ← regime 레이블 투입 안 함
         ↓
 [백테스트] PPO 결정 + 수익률 기록
         ↓
@@ -130,7 +130,9 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 | **합계** | `(lookback + 3) × n_assets + 3` | → `(30 + 3) × 10 + 3 = 333` 차원 |
 
 > `obs_dim = (lookback + 3) * n_assets + 3` (`env.py`)  
-> features_df 컬럼 네이밍: `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD_signal`
+> `features_df` 컬럼 네이밍: `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD_signal`.
+> 이 DataFrame은 `raw_features.parquet`을 각 Walk-Forward 학습 구간 통계로
+> 정규화한 결과여야 한다.
 
 **액션 공간**: `Box(low=0.0, high=1.0, shape=(n_assets,))` — softmax 정규화 후 포트폴리오 비중으로 사용
 
@@ -196,10 +198,18 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 | 파일 | 컬럼 구성 | 담당 |
 |------|----------|------|
 | `data/processed/returns.parquet` | 날짜 index + 10개 자산 티커 컬럼 (로그수익률) | 박지민 |
-| `data/processed/features.parquet` | 날짜 index + `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD_signal` (40컬럼) | 박지민 |
+| `data/processed/raw_features.parquet` | 날짜 index + `{ticker}_return`, `{ticker}_RSI`, `{ticker}_MACD`, `{ticker}_MACD_signal` (40컬럼, 정규화 전) | 박지민 |
+| `data/processed/features.parquet` | `raw_features.parquet`과 동일한 40컬럼, 전체 기간 Z-score legacy 산출물 | 박지민 |
 | `data/results/backtest_{reward}.csv` | `date`, `episode_return` | 강유영 (backtest.py 생성) |
 | `data/results/weights_{reward}.parquet` | 날짜 index + 10개 자산 비중 컬럼 | 강유영 (backtest.py 생성) |
 
+### 4-1. TODO — Walk-Forward 정규화 연동
+
+- [ ] `train_walkforward.py`는 `raw_features.parquet`에서 학습 구간 통계(mean/std)를 계산한다.
+- [ ] `backtest.py`는 테스트 구간을 학습 구간 통계로만 변환한다.
+- [ ] `features.parquet`을 Walk-Forward 학습/백테스트의 직접 입력으로 사용하지 않는다.
+- [ ] 정규화 통계 저장 경로를 팀 합의 후 고정한다. 예: `data/processed/scalers/{window}_feature_stats.json`.
+
 ---
 
-*최종 업데이트: 2026-05-12 / 작성: 강유영*
+*최종 업데이트: 2026-05-15 / 작성: 박지민*
