@@ -426,6 +426,55 @@ def _build_fast_research_response(question: str) -> ResearchResponse | None:
     )
 
 
+def _build_seed_research_response(question: str) -> ResearchResponse | None:
+    """Build a fast report from bundled asset seed documents for known ETF questions."""
+    try:
+        from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
+        from src.agent.seed_documents import SEED_DOCUMENTS
+    except Exception:
+        return None
+
+    query = question.upper()
+    selected: list[dict[str, str]] = []
+    for item in SEED_DOCUMENTS:
+        haystack = f"{item['title']} {item['summary']}".upper()
+        if any(token in query and token in haystack for token in DEFAULT_TICKERS):
+            selected.append(item)
+    if not selected and any(token in query for token in ("ETF", "금리", "RISK")):
+        selected = SEED_DOCUMENTS[:3]
+    if not selected:
+        return None
+
+    snippets = [
+        f"{index}. {item['title']}: {item['summary'][:350]}"
+        for index, item in enumerate(selected[:3], start=1)
+    ]
+    combined_text = " ".join([question, *snippets])
+    risk_tags = extract_rl_risk_tags(combined_text) or extract_risk_tags(combined_text)
+    report = (
+        "로컬 자산 문서 기준 투자 리서치 요약입니다.\n\n"
+        + "\n".join(snippets)
+        + "\n\n"
+        + "위 근거를 바탕으로 포트폴리오 관점에서는 주식 성장 노출, 채권 듀레이션, "
+        + "실물자산 방어력, 한국/글로벌 분산 효과를 함께 점검해야 합니다."
+    )
+    reasoning_trace = "\n".join(
+        [
+            "[THINK][planner] 질문에서 자산 티커와 금리/경기 리스크 키워드를 추출했습니다.",
+            f"[THINK][researcher] 로컬 seed RAG 문서 {len(snippets)}건을 선택했습니다.",
+            "[THINK][analyst] 선택 문서 기반으로 요약 리포트와 리스크 태그를 생성했습니다.",
+        ]
+    )
+    return ResearchResponse(
+        status="ready",
+        question=question,
+        report=report,
+        sources=[item["url"] for item in selected[:3]],
+        reasoning_trace=reasoning_trace,
+        risk_tags=[str(tag) for tag in (risk_tags or _infer_risk_tags(question))],
+    )
+
+
 def _run_graph_with_timeout(question: str) -> dict[str, Any]:
     """Run synchronous LangGraph research with a request-time budget."""
     future = _RESEARCH_EXECUTOR.submit(run_graph, question)
@@ -592,7 +641,6 @@ def warm_runtime_caches() -> None:
         _load_returns()
         _load_features()
         _ensure_rag_seed_documents()
-        _warm_rag_query()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -784,21 +832,6 @@ def _ensure_rag_seed_documents() -> int:
         return ensure_seed_documents(settings.CHROMA_PERSIST_DIR)
     except Exception:
         return 0
-
-
-def _warm_rag_query() -> None:
-    """Warm Chroma query/embedding path before the first user research request."""
-    try:
-        from src.agent.vectorstore import query_documents
-
-        if _rag_has_documents():
-            query_documents(
-                query_texts=["SPY TLT 금리 리스크"],
-                n_results=1,
-                persist_dir=settings.CHROMA_PERSIST_DIR,
-            )
-    except Exception:
-        return
 
 
 def _risk_adjusted_raw_weights(

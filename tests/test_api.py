@@ -278,23 +278,6 @@ def test_rag_seed_documents_enable_ready_research(monkeypatch, tmp_path) -> None
     api_services._build_fast_research_response.cache_clear()
 
 
-def test_warm_rag_query_runs_when_documents_exist(monkeypatch) -> None:
-    """Startup warmup should exercise Chroma query path when RAG data exists."""
-    calls: list[dict] = []
-
-    def fake_query_documents(**kwargs) -> dict:
-        calls.append(kwargs)
-        return {"documents": [["seed"]], "metadatas": [[{}]]}
-
-    monkeypatch.setattr(api_services, "_rag_has_documents", lambda: True)
-    monkeypatch.setattr("src.agent.vectorstore.query_documents", fake_query_documents)
-
-    api_services._warm_rag_query()
-
-    assert calls
-    assert calls[0]["n_results"] == 1
-
-
 def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
     """POST /research should keep the synchronous API under the request budget."""
 
