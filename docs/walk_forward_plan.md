@@ -63,10 +63,10 @@ Walk-Forward 학습/백테스트에 직접 사용하지 않는다.
 
 ## TODO — RL 학습/백테스트 구현
 
-- [ ] `train_walkforward.py`에서 `raw_features.parquet` 기반 per-window 정규화 구현
-- [ ] window별 mean/std 저장 및 재사용 경로 확정
+- [x] `train_walkforward.py`에서 `raw_features.parquet` 기반 per-window 정규화 구현
+- [x] window별 mean/std 저장 및 재사용 경로 확정 (`data/processed/scalers/{window}_feature_stats.json`)
 - [x] `backtest.py`에서 test feature를 train mean/std로 변환
-- [ ] look-ahead bias 제거 후 PPO 모델과 백테스트 결과 재생성
+- [x] look-ahead bias 제거 후 PPO 모델과 백테스트 결과 재생성 (12개 모델 재학습 완료, SHAP 플롯 재생성 완료)
 
 ---
 

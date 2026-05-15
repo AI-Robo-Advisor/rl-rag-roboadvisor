@@ -500,3 +500,44 @@ def generate_force_plot(
     )
     shap.save_html(str(html_path), force)
     print(f"Force Plot 저장 완료: {html_path}")
+
+
+if __name__ == "__main__":
+    import json
+    import pandas as pd
+
+    # DEFAULT_MODEL_PATH는 final 윈도우 모델 → final 윈도우 scaler 사용
+    _SCALER_PATH = Path("data/processed/scalers/final_feature_stats.json")
+
+    returns_df = pd.read_parquet("data/processed/returns.parquet")
+    raw_features_df = pd.read_parquet("data/processed/raw_features.parquet")
+
+    if not _SCALER_PATH.exists():
+        raise FileNotFoundError(
+            f"scaler 파일 없음: {_SCALER_PATH}\n"
+            "python -m src.rl.train_walkforward 실행 후 재시도하세요."
+        )
+
+    with open(_SCALER_PATH, encoding="utf-8") as f:
+        stats = json.load(f)
+
+    mean = pd.Series(stats["mean"])
+    std = pd.Series(stats["std"])
+    features_df = (raw_features_df - mean) / std
+
+    summary_path = Path("data/results/shap_summary.png")
+
+    print("SHAP Summary Plot 생성 중...")
+    generate_summary_plot(
+        model_path=DEFAULT_MODEL_PATH,
+        features_df=features_df,
+        returns_df=returns_df,
+        save_path=summary_path,
+    )
+
+    print("SHAP Force Plot 생성 중...")
+    generate_force_plot(
+        model_path=DEFAULT_MODEL_PATH,
+        features_df=features_df,
+        returns_df=returns_df,
+    )
