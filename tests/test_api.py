@@ -259,6 +259,25 @@ def test_research_uses_fast_local_rag_when_documents_exist(monkeypatch) -> None:
     api_services._build_fast_research_response.cache_clear()
 
 
+def test_rag_seed_documents_enable_ready_research(monkeypatch, tmp_path) -> None:
+    """Local seed documents should make an empty Chroma store usable for /research."""
+    persist_dir = str(tmp_path / "chroma_seed")
+    monkeypatch.setattr(api_services.settings, "CHROMA_PERSIST_DIR", persist_dir)
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    api_services._build_fast_research_response.cache_clear()
+
+    inserted = api_services._ensure_rag_seed_documents()
+    response = client.post("/research", json={"question": "SPY와 TLT 금리 리스크는?"})
+
+    assert inserted >= 1
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["sources"]
+    assert "SPY" in payload["report"] or "TLT" in payload["report"]
+    api_services._build_fast_research_response.cache_clear()
+
+
 def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
     """POST /research should keep the synchronous API under the request budget."""
 

@@ -554,6 +554,7 @@ def warm_runtime_caches() -> None:
     try:
         _load_returns()
         _load_features()
+        _ensure_rag_seed_documents()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -734,6 +735,17 @@ def _rag_has_documents() -> bool:
         return collection_document_count(settings.CHROMA_PERSIST_DIR) > 0
     except Exception:
         return False
+
+
+def _ensure_rag_seed_documents() -> int:
+    """Populate deterministic local RAG documents when Chroma is empty."""
+    try:
+        from src.agent.seed_documents import ensure_seed_documents
+
+        _build_fast_research_response.cache_clear()
+        return ensure_seed_documents(settings.CHROMA_PERSIST_DIR)
+    except Exception:
+        return 0
 
 
 def _risk_adjusted_raw_weights(
