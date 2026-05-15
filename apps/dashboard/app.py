@@ -91,7 +91,7 @@ def _echarts_line(
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "axis"},
         "legend": _legend,
-        "grid": {"bottom": "14%" if zoom else "8%", "top": _grid_top, "containLabel": True},
+        "grid": {"bottom": "18%" if zoom else "8%", "top": _grid_top, "containLabel": True},
         "xAxis": {"type": "category", "data": x, "boundaryGap": False},
         "yAxis": {"type": "value",
                   "axisLabel": {"formatter": y_formatter} if y_formatter else {}},
@@ -100,7 +100,7 @@ def _echarts_line(
     if zoom:
         opts["dataZoom"] = [
             {"type": "inside", "start": 0, "end": 100},
-            {"type": "slider", "start": 0, "end": 100, "height": 18, "bottom": 24},
+            {"type": "slider", "start": 0, "end": 100, "height": 36, "bottom": 16},
         ]
     st_echarts(options=opts, height=height, theme="streamlit", key=key)
 
