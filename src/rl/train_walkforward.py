@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -8,7 +9,8 @@ from src.rl.env import PortfolioEnv
 
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
-FEATURES_PATH = Path("data/processed/features.parquet")
+RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
+SCALERS_DIR = Path("data/processed/scalers")
 MODELS_DIR = Path("models")
 TENSORBOARD_DIR = Path("logs/tensorboard")
 
@@ -46,31 +48,91 @@ REWARD_TYPES = ["return", "sharpe", "mdd"]
 
 
 def load_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """학습에 사용할 returns/features parquet 파일을 한 번만 로드합니다."""
+    """학습에 사용할 returns/raw_features parquet 파일을 한 번만 로드합니다.
+
+    Returns:
+        (returns_df, raw_features_df) — 둘 다 정규화 전 raw 값.
+    """
     returns_df = pd.read_parquet(RETURNS_PATH)
-    features_df = pd.read_parquet(FEATURES_PATH)
+    raw_features_df = pd.read_parquet(RAW_FEATURES_PATH)
 
     returns_df.index = pd.to_datetime(returns_df.index)
-    features_df.index = pd.to_datetime(features_df.index)
+    raw_features_df.index = pd.to_datetime(raw_features_df.index)
 
     returns_df = returns_df.sort_index()
-    features_df = features_df.sort_index()
+    raw_features_df = raw_features_df.sort_index()
 
-    return returns_df, features_df
-
-
-def split_train_data(df: pd.DataFrame, window: dict[str, str]) -> pd.DataFrame:
-    """Walk-Forward window의 train 구간만 분리합니다."""
-    return df.loc[window["train_start"]:window["train_end"]].copy()
+    return returns_df, raw_features_df
 
 
-def align_train_data(
-    train_returns: pd.DataFrame,
+def normalize_features(
     train_features: pd.DataFrame,
     window_name: str,
+) -> tuple[pd.DataFrame, dict]:
+    """학습 구간 통계로 Z-score 정규화하고 통계를 저장합니다.
+
+    Args:
+        train_features: 학습 구간 raw feature DataFrame.
+        window_name: 윈도우 식별자 (저장 경로에 사용).
+
+    Returns:
+        (정규화된 train_features, {"mean": {...}, "std": {...}}) 튜플.
+        std가 0인 컬럼은 1로 대체하여 ZeroDivisionError를 방지합니다.
+    """
+    mean = train_features.mean()
+    std = train_features.std().replace(0, 1)
+
+    normalized = (train_features - mean) / std
+
+    stats = {
+        "mean": mean.to_dict(),
+        "std": std.to_dict(),
+    }
+    stats_path = SCALERS_DIR / f"{window_name}_feature_stats.json"
+    with open(stats_path, "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=2)
+
+    print(f"정규화 통계 저장: {stats_path}")
+    return normalized, stats
+
+
+def apply_normalization(
+    features: pd.DataFrame,
+    stats: dict,
+) -> pd.DataFrame:
+    """저장된 train 통계로 임의 구간 feature를 Z-score 변환합니다.
+
+    Args:
+        features: 변환할 raw feature DataFrame.
+        stats: normalize_features()가 반환한 {"mean": ..., "std": ...} dict.
+
+    Returns:
+        정규화된 feature DataFrame.
+    """
+    mean = pd.Series(stats["mean"])
+    std = pd.Series(stats["std"])
+    return (features - mean) / std
+
+
+def align_data(
+    returns: pd.DataFrame,
+    features: pd.DataFrame,
+    window_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """returns/features의 공통 날짜만 사용하도록 정렬합니다."""
-    common_index = train_returns.index.intersection(train_features.index)
+    """returns/features의 공통 날짜만 사용하도록 정렬합니다.
+
+    Args:
+        returns: 수익률 DataFrame.
+        features: 피처 DataFrame.
+        window_name: 오류 메시지용 윈도우 이름.
+
+    Returns:
+        (aligned_returns, aligned_features) 튜플.
+
+    Raises:
+        ValueError: 공통 날짜 수가 lookback 이하인 경우.
+    """
+    common_index = returns.index.intersection(features.index)
 
     if len(common_index) <= LOOKBACK:
         raise ValueError(
@@ -78,29 +140,39 @@ def align_train_data(
             f"{len(common_index)} rows"
         )
 
-    aligned_returns = train_returns.loc[common_index].copy()
-    aligned_features = train_features.loc[common_index].copy()
-
-    return aligned_returns, aligned_features
+    return returns.loc[common_index].copy(), features.loc[common_index].copy()
 
 
 def train_one_model(
     returns_df: pd.DataFrame,
-    features_df: pd.DataFrame,
+    raw_features_df: pd.DataFrame,
     window_name: str,
     window: dict[str, str],
     reward_type: str,
     total_timesteps: int = TOTAL_TIMESTEPS,
 ) -> None:
-    """단일 reward/window 조합의 PPO 모델을 학습하고 저장합니다."""
-    train_returns = split_train_data(returns_df, window)
-    train_features = split_train_data(features_df, window)
+    """단일 reward/window 조합의 PPO 모델을 학습하고 저장합니다.
 
-    train_returns, train_features = align_train_data(
-        train_returns=train_returns,
-        train_features=train_features,
-        window_name=window_name,
-    )
+    학습 구간 raw_features에서 mean/std를 계산하여 Z-score 정규화한 뒤
+    PortfolioEnv에 전달합니다. 정규화 통계는 data/processed/scalers/에 저장합니다.
+
+    Args:
+        returns_df: 전체 기간 raw 로그수익률.
+        raw_features_df: 전체 기간 정규화 전 raw feature.
+        window_name: 윈도우 식별자 ("w1" | "w2" | "w3" | "final").
+        window: 윈도우 날짜 정의 dict.
+        reward_type: 보상함수 종류 ("return" | "sharpe" | "mdd").
+        total_timesteps: PPO 총 학습 스텝 수.
+    """
+    # 학습 구간 분리
+    train_returns = returns_df.loc[window["train_start"]:window["train_end"]].copy()
+    train_raw = raw_features_df.loc[window["train_start"]:window["train_end"]].copy()
+
+    # 공통 날짜 정렬
+    train_returns, train_raw = align_data(train_returns, train_raw, window_name)
+
+    # 학습 구간 통계로 Z-score 정규화 + 통계 저장
+    train_features, _ = normalize_features(train_raw, window_name)
 
     env = PortfolioEnv(
         returns_df=train_returns,
@@ -136,14 +208,15 @@ def train_one_model(
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     TENSORBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    SCALERS_DIR.mkdir(parents=True, exist_ok=True)
 
-    returns_df, features_df = load_training_data()
+    returns_df, raw_features_df = load_training_data()
 
     for reward_type in REWARD_TYPES:
         for window_name, window in WINDOWS.items():
             train_one_model(
                 returns_df=returns_df,
-                features_df=features_df,
+                raw_features_df=raw_features_df,
                 window_name=window_name,
                 window=window,
                 reward_type=reward_type,
