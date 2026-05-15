@@ -303,11 +303,8 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     """POST /research/stream should expose graph progress as NDJSON lines."""
 
     async def fake_stream_graph_events(question: str):
-        yield {
-            "event": "on_chain_start",
-            "name": "planner",
-            "data": {"input": {"query": question}},
-        }
+        yield {"event": "on_parser_start", "name": "ignored", "data": {"input": "skip"}}
+        yield {"event": "on_chain_start", "name": "planner", "data": {"input": {"query": question}}}
         yield {
             "event": "on_chain_end",
             "name": "analyst",
@@ -331,6 +328,8 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert '"type":"start"' in lines[0]
     assert '"type":"on_chain_start"' in lines[1]
     assert '"name":"planner"' in lines[1]
+    assert '"data"' not in lines[1]
+    assert len(lines[1]) < 1000
     assert '"type":"on_chain_end"' in lines[2]
     assert '"type":"complete"' in lines[-1]
 

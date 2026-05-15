@@ -85,6 +85,7 @@ def _format_research_event(event: dict[str, Any]) -> str:
     event_type = event.get("type", "event")
     name = event.get("name") or "research"
     data = event.get("data") or {}
+    text = event.get("text") or ""
 
     if event_type == "start":
         return f"[start] {event.get('question', '')}\n"
@@ -94,6 +95,8 @@ def _format_research_event(event: dict[str, Any]) -> str:
         return f"[fallback] {report}\n리스크 태그: {tags}\n"
     if event_type == "complete":
         return "[complete] 리서치 스트림 종료\n"
+    if text:
+        return f"[{event_type}][{name}] {text}\n"
 
     summary = ""
     if isinstance(data, dict):

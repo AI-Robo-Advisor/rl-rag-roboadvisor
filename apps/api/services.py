@@ -49,6 +49,13 @@ RESEARCH_TIMEOUT_SECONDS = 4.5
 _PPO_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 _SHAP_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 _RESEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+_STREAM_EVENT_ALLOWLIST = {
+    "on_chain_start",
+    "on_chain_end",
+    "on_chat_model_stream",
+    "on_tool_start",
+    "on_tool_end",
+}
 WINDOW_PERIODS: dict[BacktestWindow, tuple[str, str]] = {
     "w1": ("2022-01-01", "2022-12-31"),
     "w2": ("2023-01-01", "2023-12-31"),
@@ -273,13 +280,9 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
 
     try:
         async for event in stream_graph_events(question):
-            yield _to_ndjson(
-                {
-                    "type": str(event.get("event", "event")),
-                    "name": event.get("name"),
-                    "data": _jsonable(event.get("data", {})),
-                }
-            )
+            compact = _compact_graph_event(event)
+            if compact:
+                yield _to_ndjson(compact)
     except Exception as exc:
         fallback = build_fallback_research(question)
         yield _to_ndjson(
@@ -295,6 +298,40 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         return
 
     yield _to_ndjson({"type": "complete", "question": question})
+
+
+def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert LangGraph events to small dashboard-oriented NDJSON payloads."""
+    event_type = str(event.get("event", "event"))
+    if event_type not in _STREAM_EVENT_ALLOWLIST:
+        return None
+
+    name = str(event.get("name") or "research")
+    data = event.get("data") or {}
+    text = ""
+    if isinstance(data, dict):
+        if event_type == "on_chat_model_stream":
+            chunk = data.get("chunk")
+            text = str(getattr(chunk, "content", "") or "")
+        else:
+            output = data.get("output") or data.get("input") or ""
+            text = _compact_event_text(output)
+
+    if event_type == "on_chat_model_stream" and not text:
+        return None
+    return {"type": event_type, "name": name, "text": text[:500]}
+
+
+def _compact_event_text(value: Any) -> str:
+    """Return a compact string from nested event payloads."""
+    if isinstance(value, dict):
+        for key in ("response", "context", "query", "plan"):
+            if value.get(key):
+                return str(value[key])
+        return json.dumps(_jsonable(value), ensure_ascii=False, separators=(",", ":"))[:500]
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value[:3])
+    return str(value)
 
 
 def build_research_response(question: str) -> ResearchResponse:
