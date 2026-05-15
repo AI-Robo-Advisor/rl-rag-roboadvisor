@@ -45,6 +45,8 @@ class OptimizeResponse(BaseModel):
     """Portfolio optimization response."""
 
     status: EndpointStatus
+    elapsed_ms: float = 0.0
+    timed_out: bool = False
     tickers: list[str]
     weights: dict[str, float]
     risk_profile: RiskProfile
@@ -73,6 +75,8 @@ class ExplainResponse(BaseModel):
     """SHAP-style explanation response."""
 
     status: EndpointStatus
+    elapsed_ms: float = 0.0
+    timed_out: bool = False
     date: str | None
     target_date: str | None
     base_value: float
@@ -93,6 +97,8 @@ class ResearchResponse(BaseModel):
     """Agentic RAG response contract."""
 
     status: EndpointStatus
+    elapsed_ms: float = 0.0
+    timed_out: bool = False
     question: str
     report: str
     sources: list[str]
@@ -149,6 +155,8 @@ class BacktestResponse(BaseModel):
     """Backtest metrics and statistical validation response."""
 
     status: EndpointStatus
+    elapsed_ms: float = 0.0
+    timed_out: bool = False
     metrics: dict[str, float]
     anova: list[AnovaResult]
     benchmark: str

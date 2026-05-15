@@ -2,6 +2,7 @@
 
 import math
 import time
+import json
 from concurrent.futures import TimeoutError
 
 from fastapi.testclient import TestClient
@@ -43,6 +44,9 @@ def test_optimize_returns_normalized_weights_for_default_assets() -> None:
     assert math.isclose(sum(payload["weights"].values()), 1.0, abs_tol=1e-9)
     assert all(weight >= 0 for weight in payload["weights"].values())
     assert payload["risk_profile"] == "balanced"
+    assert isinstance(payload["elapsed_ms"], float)
+    assert payload["elapsed_ms"] >= 0
+    assert isinstance(payload["timed_out"], bool)
 
 
 def test_optimize_accepts_dashboard_risk_aversion_and_returns_series() -> None:
@@ -83,6 +87,7 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
 
 def test_explain_returns_feature_contributions() -> None:
     """POST /explain should provide SHAP-like contribution records."""
+    api_services._load_shap_artifact.cache_clear()
     response = client.post("/explain", json={"date": "2024-12-31", "top_k": 5})
 
     assert response.status_code == 200
@@ -102,6 +107,9 @@ def test_explain_returns_feature_contributions() -> None:
     ]
     assert isinstance(payload["base_value"], float)
     assert isinstance(payload["prediction"], float)
+    assert isinstance(payload["elapsed_ms"], float)
+    assert payload["elapsed_ms"] >= 0
+    assert isinstance(payload["timed_out"], bool)
 
 
 def test_explain_uses_ready_shap_module_when_available(monkeypatch) -> None:
@@ -131,6 +139,47 @@ def test_explain_uses_ready_shap_module_when_available(monkeypatch) -> None:
     assert payload["status"] == "ready"
     assert payload["target_date"] == "2024-12-30"
     assert payload["feature_names"] == ["SPY_RSI"]
+
+
+def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> None:
+    """POST /explain should serve precomputed SHAP artifacts before live SHAP."""
+    artifact_path = tmp_path / "shap_explanations.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "latest_date": "2025-12-30",
+                "explanations": [
+                    {
+                        "date": "2025-12-30",
+                        "base_value": 0.2,
+                        "prediction": 0.25,
+                        "feature_contributions": [
+                            {"feature": "SPY_RSI", "value": 61.2, "contribution": 0.03},
+                            {"feature": "TLT_volatility", "value": 0.12, "contribution": -0.01},
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_live_shap(date: str | None, top_k: int) -> dict:
+        raise AssertionError("live SHAP should not run when artifact exists")
+
+    api_services._load_shap_artifact.cache_clear()
+    monkeypatch.setattr(api_services, "SHAP_ARTIFACT_PATH", artifact_path)
+    monkeypatch.setattr(api_services, "_compute_ready_shap_with_timeout", fail_live_shap)
+
+    response = client.post("/explain", json={"date": "2025-12-30", "top_k": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["target_date"] == "2025-12-30"
+    assert payload["feature_names"] == ["SPY_RSI"]
+    assert "artifact" in payload["message"]
+    api_services._load_shap_artifact.cache_clear()
 
 
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
@@ -170,6 +219,46 @@ def test_research_falls_back_when_graph_raises(monkeypatch) -> None:
     assert payload["risk_tags"] == ["급등락"]
 
 
+def test_research_uses_fast_local_rag_when_documents_exist(monkeypatch) -> None:
+    """POST /research should return a ready local-RAG report without waiting for LangGraph."""
+    import src.agent.vectorstore as vectorstore
+
+    def fake_query_documents(*args, **kwargs) -> dict:
+        return {
+            "documents": [
+                [
+                    "SPY는 미국 대형주 경기 민감도를 반영하고 TLT는 장기 금리 변화에 민감합니다.",
+                    "금리 인하 국면에서는 장기채 가격과 성장주 밸류에이션이 함께 움직일 수 있습니다.",
+                ]
+            ],
+            "metadatas": [
+                [
+                    {"title": "SPY TLT 리스크", "url": "https://example.com/spy-tlt"},
+                    {"title": "금리 인하와 ETF", "url": "https://example.com/rates-etf"},
+                ]
+            ],
+        }
+
+    def fail_graph(question: str) -> dict:
+        raise AssertionError("LangGraph should not run for fast local RAG")
+
+    api_services._build_fast_research_response.cache_clear()
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(vectorstore, "query_documents", fake_query_documents)
+    monkeypatch.setattr(api_services, "run_graph", fail_graph)
+
+    response = client.post("/research", json={"question": "SPY와 TLT 배분 리스크는?"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert "SPY" in payload["report"]
+    assert payload["sources"] == ["https://example.com/spy-tlt", "https://example.com/rates-etf"]
+    assert payload["reasoning_trace"]
+    assert payload["elapsed_ms"] < 5000
+    api_services._build_fast_research_response.cache_clear()
+
+
 def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
     """POST /research should keep the synchronous API under the request budget."""
 
@@ -177,6 +266,8 @@ def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
         raise TimeoutError(f"research timed out for {question}")
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "_rag_has_documents", lambda: True)
+    monkeypatch.setattr(api_services, "_build_fast_research_response", lambda question: None)
     monkeypatch.setattr(api_services, "_run_graph_with_timeout", raise_timeout)
 
     response = client.post("/research", json={"question": "삼성전자 실적 리스크는?"})
@@ -185,6 +276,8 @@ def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
     payload = response.json()
     assert payload["status"] == "fallback"
     assert payload["risk_tags"] == ["실적쇼크"]
+    assert isinstance(payload["elapsed_ms"], float)
+    assert payload["timed_out"] is True
 
 
 def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
@@ -266,6 +359,9 @@ def test_backtest_returns_metrics_and_anova_results() -> None:
     assert payload["safeguard"]["active"] is False
     assert payload["safeguard"]["triggered_at"] is None
     assert all(isinstance(item["post_hoc"], list) for item in payload["anova"])
+    assert isinstance(payload["elapsed_ms"], float)
+    assert payload["elapsed_ms"] >= 0
+    assert payload["timed_out"] is False
 
 
 def test_backtest_accepts_window_query_parameter() -> None:

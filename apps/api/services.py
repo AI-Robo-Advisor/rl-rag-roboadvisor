@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from functools import lru_cache
 from importlib.util import find_spec
 from pathlib import Path
+from time import perf_counter
 from typing import Any, AsyncIterator
 
 import numpy as np
@@ -35,12 +36,15 @@ from apps.api.schemas import (
     TukeyRow,
 )
 
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
+SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
-PPO_TIMEOUT_SECONDS = 3.5
-SHAP_TIMEOUT_SECONDS = 3.5
+PPO_TIMEOUT_SECONDS = 4.75
+SHAP_TIMEOUT_SECONDS = 4.75
 RESEARCH_TIMEOUT_SECONDS = 4.5
 _PPO_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 _SHAP_EXECUTOR = ThreadPoolExecutor(max_workers=1)
@@ -66,10 +70,30 @@ DEFAULT_TICKERS: list[str] = [
 ]
 
 
+def _elapsed_ms(start: float) -> float:
+    """Return elapsed wall-clock time in milliseconds."""
+    return round((perf_counter() - start) * 1000, 3)
+
+
+@lru_cache(maxsize=1)
+def _load_returns() -> pd.DataFrame:
+    """Load processed returns once per API process."""
+    return pd.read_parquet(RETURNS_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_features() -> pd.DataFrame:
+    """Load processed features once per API process."""
+    return pd.read_parquet(FEATURES_PATH)
+
+
 def build_fallback_portfolio(
     tickers: list[str] | None = None,
     risk_profile: RiskProfile = "balanced",
     risk_aversion: float | None = None,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
 ) -> OptimizeResponse:
     """Return deterministic normalized weights until the PPO model is connected."""
     selected_tickers = tickers or DEFAULT_TICKERS
@@ -80,6 +104,8 @@ def build_fallback_portfolio(
 
     return OptimizeResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         tickers=selected_tickers,
         weights=weights,
         risk_profile=risk_profile,
@@ -96,23 +122,42 @@ def build_portfolio_response(
     risk_aversion: float | None = None,
 ) -> OptimizeResponse:
     """Return PPO portfolio weights when available, otherwise fallback weights."""
+    start = perf_counter()
     selected_tickers = tickers or DEFAULT_TICKERS
     try:
         weights = _predict_ppo_weights_with_timeout(selected_tickers)
-    except Exception:
-        return build_fallback_portfolio(selected_tickers, risk_profile, risk_aversion)
+    except Exception as exc:
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
 
     if set(weights) != set(selected_tickers):
-        return build_fallback_portfolio(selected_tickers, risk_profile, risk_aversion)
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            elapsed_ms=_elapsed_ms(start),
+        )
 
     total_weight = sum(weights.values())
     if total_weight <= 0:
-        return build_fallback_portfolio(selected_tickers, risk_profile, risk_aversion)
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            elapsed_ms=_elapsed_ms(start),
+        )
 
     normalized = {ticker: weight / total_weight for ticker, weight in weights.items()}
     return_series, expected_return, expected_volatility = _build_return_series(normalized)
     return OptimizeResponse(
         status="ready",
+        elapsed_ms=_elapsed_ms(start),
+        timed_out=False,
         tickers=selected_tickers,
         weights=normalized,
         risk_profile=risk_profile,
@@ -123,7 +168,13 @@ def build_portfolio_response(
     )
 
 
-def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
+def build_fallback_explanation(
+    date: str | None,
+    top_k: int,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
+) -> ExplainResponse:
     """Return SHAP-like feature contributions for dashboard integration."""
     features = _feature_contributions_from_parquet(date, top_k) or _static_feature_contributions()
 
@@ -132,6 +183,8 @@ def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
     target_date = date or _latest_feature_date()
     return ExplainResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         date=date,
         target_date=target_date,
         base_value=0.05,
@@ -145,10 +198,13 @@ def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
 
 def build_explanation_response(date: str | None, top_k: int) -> ExplainResponse:
     """Return SHAP explanation from the RL module when available."""
+    start = perf_counter()
     try:
-        result = _compute_ready_shap_with_timeout(date, top_k)
+        result = _shap_from_artifact(date, top_k) or _compute_ready_shap_with_timeout(date, top_k)
         return ExplainResponse(
             status="ready",
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=False,
             date=result.get("date"),
             target_date=result.get("target_date"),
             base_value=result.get("base_value", 0.0),
@@ -160,8 +216,13 @@ def build_explanation_response(date: str | None, top_k: int) -> ExplainResponse:
             shap_values=list(result.get("shap_values", [])),
             message=result.get("message", "PPO SHAP 분석 완료."),
         )
-    except Exception:
-        return build_fallback_explanation(date, top_k)
+    except Exception as exc:
+        return build_fallback_explanation(
+            date,
+            top_k,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
 
 
 def run_graph(question: str) -> dict[str, Any]:
@@ -238,15 +299,94 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
 
 def build_research_response(question: str) -> ResearchResponse:
     """Run LangGraph when configured, otherwise return the deterministic fallback."""
+    start = perf_counter()
     if not settings.OPENAI_API_KEY:
-        return build_fallback_research(question)
+        return build_fallback_research(question, elapsed_ms=_elapsed_ms(start))
+
+    fast_response = _build_fast_research_response(question)
+    if fast_response:
+        fast_response.elapsed_ms = _elapsed_ms(start)
+        return fast_response
+
+    if not _rag_has_documents():
+        return build_fallback_research(question, elapsed_ms=_elapsed_ms(start))
 
     try:
         state = _run_graph_with_timeout(question)
-    except Exception:
-        return build_fallback_research(question)
+    except Exception as exc:
+        return build_fallback_research(
+            question,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
 
-    return _research_response_from_state(question, state)
+    response = _research_response_from_state(question, state)
+    response.elapsed_ms = _elapsed_ms(start)
+    return response
+
+
+@lru_cache(maxsize=64)
+def _build_fast_research_response(question: str) -> ResearchResponse | None:
+    """Build a bounded extractive RAG report from local Chroma documents."""
+    try:
+        from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
+        from src.agent.vectorstore import query_documents
+
+        results = query_documents(
+            query_texts=[question],
+            n_results=3,
+            persist_dir=settings.CHROMA_PERSIST_DIR,
+        )
+    except Exception:
+        return None
+
+    documents = results.get("documents") or []
+    first_docs = documents[0] if documents and documents[0] else []
+    if not first_docs:
+        return None
+
+    metadatas = results.get("metadatas") or []
+    first_metas = metadatas[0] if metadatas and metadatas[0] else []
+    snippets: list[str] = []
+    sources: list[str] = []
+    for index, content in enumerate(first_docs[:3], start=1):
+        text = str(content).strip()
+        if not text:
+            continue
+        meta = first_metas[index - 1] if index - 1 < len(first_metas) else {}
+        title = str(meta.get("title") or f"문서 {index}")
+        url = str(meta.get("url") or meta.get("source") or "")
+        snippets.append(f"{index}. {title}: {text[:350]}")
+        if url:
+            sources.append(url)
+
+    if not snippets:
+        return None
+
+    combined_text = " ".join([question, *snippets])
+    risk_tags = extract_rl_risk_tags(combined_text) or extract_risk_tags(combined_text)
+    report = (
+        "로컬 RAG 검색 결과 기준 투자 리서치 요약입니다.\n\n"
+        + "\n".join(snippets)
+        + "\n\n"
+        + "위 근거를 바탕으로 포트폴리오 관점에서는 관련 자산의 변동성, 금리 민감도, "
+        + "분산 효과 변화를 함께 점검해야 합니다."
+    )
+    reasoning_trace = "\n".join(
+        [
+            "[THINK][planner] 질문에서 핵심 자산과 리스크 키워드를 추출했습니다.",
+            f"[THINK][researcher] Chroma top-k={len(snippets)}건을 조회했습니다.",
+            "[THINK][analyst] 검색 문서 기반으로 요약 리포트와 리스크 태그를 생성했습니다.",
+        ]
+    )
+    return ResearchResponse(
+        status="ready",
+        question=question,
+        report=report,
+        sources=sources or ["local-chroma://finance_news"],
+        reasoning_trace=reasoning_trace,
+        risk_tags=[str(tag) for tag in (risk_tags or _infer_risk_tags(question))],
+    )
 
 
 def _run_graph_with_timeout(question: str) -> dict[str, Any]:
@@ -280,11 +420,18 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
     )
 
 
-def build_fallback_research(question: str) -> ResearchResponse:
+def build_fallback_research(
+    question: str,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
+) -> ResearchResponse:
     """Return a stable RAG-style payload until LangGraph is connected."""
     risk_tags = _infer_risk_tags(question)
     return ResearchResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         question=question,
         report=(
             "현재 응답은 LangGraph 에이전트 연결 전 fallback입니다. 질문의 핵심 위험 요인을 "
@@ -335,10 +482,16 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
 
 def build_backtest_response(window: BacktestWindow = "final") -> BacktestResponse:
     """Return RL backtest/anova results when available, otherwise fallback."""
+    start = perf_counter()
     try:
-        return _build_ready_backtest_response(window)
-    except Exception:
-        return build_fallback_backtest(window)
+        response = _build_ready_backtest_response_cached(window).model_copy(deep=True)
+        response.elapsed_ms = _elapsed_ms(start)
+        return response
+    except Exception as exc:
+        response = build_fallback_backtest(window)
+        response.elapsed_ms = _elapsed_ms(start)
+        response.timed_out = isinstance(exc, TimeoutError)
+        return response
 
 
 def build_module_statuses() -> dict[str, str]:
@@ -346,7 +499,7 @@ def build_module_statuses() -> dict[str, str]:
     return {
         "data": "ready" if _can_load_data_files() else "fallback",
         "rl": "ready" if _is_ppo_ready() else "fallback",
-        "rag": "ready" if settings.OPENAI_API_KEY else "fallback",
+        "rag": "ready" if settings.OPENAI_API_KEY and _rag_has_documents() else "fallback",
         "shap": "ready" if _is_shap_ready() else "fallback",
         "backtest": "ready" if _is_backtest_ready() else "fallback",
     }
@@ -354,8 +507,8 @@ def build_module_statuses() -> dict[str, str]:
 
 def _predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
-    returns = pd.read_parquet(RETURNS_PATH)
-    features = pd.read_parquet(FEATURES_PATH)
+    returns = _load_returns()
+    features = _load_features()
     missing = [ticker for ticker in tickers if ticker not in returns.columns]
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
@@ -396,12 +549,23 @@ def _load_ppo_model() -> Any:
     return PPO.load(str(PPO_MODEL_PATH))
 
 
+def warm_runtime_caches() -> None:
+    """Warm request-critical caches during API startup/import."""
+    try:
+        _load_returns()
+        _load_features()
+        if _is_ppo_ready():
+            _load_ppo_model()
+    except Exception:
+        return
+
+
 def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
     """Compute a bounded SHAP explanation through src.rl.shap."""
     from src.rl.shap import compute_shap_explanation
 
-    features = pd.read_parquet(FEATURES_PATH)
-    returns = pd.read_parquet(RETURNS_PATH)
+    features = _load_features()
+    returns = _load_returns()
     return compute_shap_explanation(
         model_path=PPO_MODEL_PATH,
         features_df=features,
@@ -415,7 +579,7 @@ def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
 
 def _compute_ready_shap_with_timeout(date: str | None, top_k: int) -> dict[str, Any]:
     """Run SHAP explanation with a request-time budget."""
-    future = _SHAP_EXECUTOR.submit(_compute_ready_shap, date, top_k)
+    future = _SHAP_EXECUTOR.submit(_compute_ready_shap_cached, date, top_k)
     try:
         return future.result(timeout=SHAP_TIMEOUT_SECONDS)
     except TimeoutError:
@@ -423,13 +587,60 @@ def _compute_ready_shap_with_timeout(date: str | None, top_k: int) -> dict[str, 
         raise
 
 
+@lru_cache(maxsize=32)
+def _compute_ready_shap_cached(date: str | None, top_k: int) -> dict[str, Any]:
+    """Cache live SHAP results for repeated dashboard lookups."""
+    return _compute_ready_shap(date, top_k)
+
+
+@lru_cache(maxsize=1)
+def _load_shap_artifact() -> dict[str, Any] | None:
+    """Load precomputed SHAP explanations when an artifact is available."""
+    if not SHAP_ARTIFACT_PATH.exists():
+        return None
+    with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
+        artifact = json.load(fp)
+    return artifact if isinstance(artifact, dict) else None
+
+
+def _shap_from_artifact(date: str | None, top_k: int) -> dict[str, Any] | None:
+    """Return a ready SHAP payload from a precomputed artifact."""
+    artifact = _load_shap_artifact()
+    if not artifact:
+        return None
+
+    explanations = artifact.get("explanations")
+    if not isinstance(explanations, list) or not explanations:
+        return None
+
+    target = date or str(artifact.get("latest_date") or "")
+    candidates = [
+        item for item in explanations if isinstance(item, dict) and str(item.get("date")) <= target
+    ]
+    selected = candidates[-1] if candidates else explanations[-1]
+    contributions = list(selected.get("feature_contributions", []))[:top_k]
+    if not contributions:
+        return None
+
+    return {
+        "date": date,
+        "target_date": selected.get("date"),
+        "base_value": selected.get("base_value", 0.0),
+        "prediction": selected.get("prediction", 0.0),
+        "feature_contributions": contributions,
+        "feature_names": [item.get("feature", "") for item in contributions],
+        "shap_values": [item.get("contribution", 0.0) for item in contributions],
+        "message": "사전 계산된 SHAP artifact 기반 해석입니다.",
+    }
+
+
 def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     """Build BacktestResponse from implemented RL backtest and ANOVA modules."""
     from src.rl.anova import run_all_anova
     from src.rl.backtest import WINDOWS, run_window_backtest
 
-    returns = pd.read_parquet(RETURNS_PATH)
-    features = pd.read_parquet(FEATURES_PATH)
+    returns = _load_returns()
+    features = _load_features()
     window_config = next(item for item in WINDOWS if item["name"] == window)
     metrics_raw, portfolio_returns, _ = run_window_backtest(
         window_config,
@@ -482,6 +693,12 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     )
 
 
+@lru_cache(maxsize=4)
+def _build_ready_backtest_response_cached(window: BacktestWindow) -> BacktestResponse:
+    """Cache backtest results because they are immutable for a running API process."""
+    return _build_ready_backtest_response(window)
+
+
 def _is_ppo_ready() -> bool:
     """Return whether PPO inference can be attempted."""
     if not PPO_MODEL_PATH.exists():
@@ -507,6 +724,16 @@ def _is_backtest_ready() -> bool:
         and find_spec("scipy") is not None
         and find_spec("statsmodels") is not None
     )
+
+
+def _rag_has_documents() -> bool:
+    """Return whether the configured Chroma collection has retrievable documents."""
+    try:
+        from src.agent.vectorstore import collection_document_count
+
+        return collection_document_count(settings.CHROMA_PERSIST_DIR) > 0
+    except Exception:
+        return False
 
 
 def _risk_adjusted_raw_weights(
@@ -551,7 +778,7 @@ def _build_return_series(
 ) -> tuple[ReturnSeries, float | None, float | None]:
     """Build cumulative portfolio and benchmark series from returns.parquet when available."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
+        returns = _load_returns()
         usable = [ticker for ticker in weights if ticker in returns.columns]
         if not usable:
             return _static_return_series(), None, None
@@ -597,7 +824,7 @@ def _feature_contributions_from_parquet(
 ) -> list[FeatureContribution] | None:
     """Build deterministic SHAP-like contributions from the nearest feature row."""
     try:
-        features = pd.read_parquet(FEATURES_PATH)
+        features = _load_features()
         if features.empty:
             return None
         if requested_date:
@@ -637,7 +864,7 @@ def _static_feature_contributions() -> list[FeatureContribution]:
 def _latest_feature_date() -> str | None:
     """Return the latest feature date if available."""
     try:
-        features = pd.read_parquet(FEATURES_PATH, columns=[])
+        features = _load_features()
         if features.empty:
             return None
         return features.index[-1].strftime("%Y-%m-%d")
@@ -656,7 +883,7 @@ def _build_backtest_payload(window: BacktestWindow) -> tuple[
 ]:
     """Use returns.parquet and metrics.py when available; otherwise return deterministic fallback."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
+        returns = _load_returns()
         if returns.empty:
             raise ValueError("returns.parquet is empty")
 
@@ -856,8 +1083,8 @@ def _finite_float(value: Any) -> float:
 def _can_load_data_files() -> bool:
     """Check whether the API can read the local parquet data files."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
-        features = pd.read_parquet(FEATURES_PATH)
+        returns = _load_returns()
+        features = _load_features()
     except (OSError, ValueError, ImportError):
         return False
     return not returns.empty and not features.empty
