@@ -592,6 +592,7 @@ def warm_runtime_caches() -> None:
         _load_returns()
         _load_features()
         _ensure_rag_seed_documents()
+        _warm_rag_query()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -783,6 +784,21 @@ def _ensure_rag_seed_documents() -> int:
         return ensure_seed_documents(settings.CHROMA_PERSIST_DIR)
     except Exception:
         return 0
+
+
+def _warm_rag_query() -> None:
+    """Warm Chroma query/embedding path before the first user research request."""
+    try:
+        from src.agent.vectorstore import query_documents
+
+        if _rag_has_documents():
+            query_documents(
+                query_texts=["SPY TLT 금리 리스크"],
+                n_results=1,
+                persist_dir=settings.CHROMA_PERSIST_DIR,
+            )
+    except Exception:
+        return
 
 
 def _risk_adjusted_raw_weights(
