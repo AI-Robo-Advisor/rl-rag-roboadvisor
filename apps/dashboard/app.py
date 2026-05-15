@@ -8,8 +8,10 @@ API 미완성 상태에서는 mock 데이터로 UI를 렌더링합니다.
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
@@ -22,12 +24,19 @@ except ModuleNotFoundError:
     # Streamlit file-entry execution inside Docker may not resolve the package root.
     from api_client import get_json, post_json
 
+try:
+    from config import TICKERS_GLOBAL, TICKERS_KR
+except ModuleNotFoundError:
+    TICKERS_GLOBAL = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ"]
+    TICKERS_KR = ["069500", "114260"]
+
 # ─────────────────────────────────────────────
 # 설정
 # ─────────────────────────────────────────────
 
 API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
-REQUEST_TIMEOUT: int = 10
+_TIMEOUT_DEFAULT: int = 10
+_TIMEOUT_RESEARCH: int = 60  # LangGraph 루프 최대 3회 대응
 
 _PALETTE = ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de",
             "#3ba272", "#fc8452", "#9a60b4", "#ea7ccc", "#48b8d0"]
@@ -44,17 +53,17 @@ def _get(endpoint: str, params: dict | None = None) -> dict[str, Any] | None:
         API_BASE_URL,
         endpoint,
         params=params,
-        timeout=REQUEST_TIMEOUT,
+        timeout=_TIMEOUT_DEFAULT,
         warn=st.warning,
     )
 
 
-def _post(endpoint: str, payload: dict) -> dict[str, Any] | None:
+def _post(endpoint: str, payload: dict, timeout: int = _TIMEOUT_DEFAULT) -> dict[str, Any] | None:
     return post_json(
         API_BASE_URL,
         endpoint,
         payload,
-        timeout=REQUEST_TIMEOUT,
+        timeout=timeout,
         warn=st.warning,
     )
 
@@ -66,13 +75,23 @@ def _post(endpoint: str, payload: dict) -> dict[str, Any] | None:
 def _echarts_line(
     x: list, series: list[dict], title: str = "",
     height: str = "380px", y_formatter: str = "",
-    zoom: bool = True, key: str = "chart",
+    zoom: bool = True, key: str = "chart", legend: bool = True,
 ) -> None:
+    _legend = (
+        {
+            "top": 28, "type": "scroll",
+            "itemWidth": 28, "itemHeight": 14,
+            "textStyle": {"fontSize": 12},
+            "icon": "roundRect",
+        }
+        if legend else {"show": False}
+    )
+    _grid_top = "22%" if legend else "12%"
     opts: dict = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "axis"},
-        "legend": {"bottom": 0, "type": "scroll"},
-        "grid": {"bottom": "18%" if zoom else "12%", "top": "12%", "containLabel": True},
+        "legend": _legend,
+        "grid": {"bottom": "18%" if zoom else "8%", "top": _grid_top, "containLabel": True},
         "xAxis": {"type": "category", "data": x, "boundaryGap": False},
         "yAxis": {"type": "value",
                   "axisLabel": {"formatter": y_formatter} if y_formatter else {}},
@@ -81,7 +100,7 @@ def _echarts_line(
     if zoom:
         opts["dataZoom"] = [
             {"type": "inside", "start": 0, "end": 100},
-            {"type": "slider", "start": 0, "end": 100, "height": 18, "bottom": 24},
+            {"type": "slider", "start": 0, "end": 100, "height": 36, "bottom": 16},
         ]
     st_echarts(options=opts, height=height, theme="streamlit", key=key)
 
@@ -113,7 +132,12 @@ def _echarts_donut(
     opts = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "item", "formatter": "{b}: {d}%"},
-        "legend": {"bottom": 0, "type": "scroll"},
+        "legend": {
+            "bottom": 6, "type": "scroll",
+            "itemWidth": 12, "itemHeight": 12,
+            "textStyle": {"fontSize": 11},
+            "icon": "circle",
+        },
         "series": [{
             "type": "pie", "radius": ["38%", "65%"], "avoidLabelOverlap": True,
             "itemStyle": {"borderRadius": 8, "borderColor": "#fff", "borderWidth": 2},
@@ -154,8 +178,7 @@ def _echarts_gauge(
 # Mock 데이터
 # ─────────────────────────────────────────────
 
-_ASSETS = ["삼성전자", "SK하이닉스", "NAVER", "카카오", "현대차",
-           "LG에너솔", "POSCO홀딩스", "삼성SDI", "KB금융", "셀트리온"]
+_ASSETS = TICKERS_GLOBAL + TICKERS_KR
 _rng = np.random.default_rng(42)
 
 
@@ -226,8 +249,11 @@ def _mock_backtest() -> dict:
 
 
 def _mock_explain(target_date: str) -> dict:
-    feat = ["RSI_14", "MACD", "MACD_signal", "BB_width", "log_return_1d",
-            "log_return_5d", "volume_ratio", "gold_corr", "krw_usd", "기준금리"]
+    feat = [
+        f"{t}_{f}"
+        for t in _ASSETS
+        for f in ("return", "RSI", "MACD", "MACD_signal")
+    ]
     vals = _rng.normal(0, 0.05, len(feat)).tolist()
     base = 0.002
     return {"target_date": target_date, "feature_names": feat,
@@ -268,6 +294,7 @@ def portfolio_page() -> None:
             min_value=0.5, max_value=5.0, value=1.0, step=0.5,
             help="값이 클수록 분산 투자 비중 증가",
         )
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3)
 
     st.title("포트폴리오 현황")
 
@@ -302,7 +329,8 @@ def portfolio_page() -> None:
             _echarts_donut(
                 labels=list(data["weights"].keys()),
                 values=list(data["weights"].values()),
-                title="자산 비중", key="p_donut",
+                title="자산 비중",
+                 key="p_donut",
             )
     with col2:
         with st.container(border=True):
@@ -327,6 +355,15 @@ def portfolio_page() -> None:
 
 
 def rl_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="rl_period")
+        strategies: list[str] = st.multiselect(
+            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            help="강화학습 성과 탭에서 비교할 전략",
+        )
+
     st.title("강화학습 성과")
     with st.spinner("GET /backtest 호출 중…"):
         bt = _get("/backtest") or _mock_backtest()
@@ -354,6 +391,7 @@ def rl_page() -> None:
                          "areaStyle": {"opacity": 0.12}, "data": bt["rewards"],
                          "itemStyle": {"color": _PALETTE[1]}}],
                 title="학습 곡선 (에피소드 누적 보상)", key="rl_reward",
+                legend=False,
             )
     with col2:
         with st.container(border=True):
@@ -446,27 +484,72 @@ def research_page() -> None:
 
     question = st.text_area(
         "투자 질문 입력",
-        placeholder="예: 삼성전자 HBM 반도체 실적 전망은?",
+        placeholder="ex. 삼성전자 HBM 반도체 실적 전망은?",
         height=80,
     )
+
+    # Enter → 리서치 실행, Shift+Enter → 줄바꿈
+    st.components.v1.html("""
+    <script>
+    (function() {
+        function attachHandler() {
+            const textareas = window.parent.document.querySelectorAll('textarea');
+            textareas.forEach(function(ta) {
+                if (ta._researchBound) return;
+                ta._researchBound = true;
+                ta.addEventListener('keydown', function(e) {
+                    if (e.isComposing) return;
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        ta.blur();
+                        setTimeout(function() {
+                            const buttons = window.parent.document.querySelectorAll('button');
+                            for (const btn of buttons) {
+                                if (btn.innerText.trim() === '리서치 실행') {
+                                    btn.click();
+                                    break;
+                                }
+                            }
+                        }, 100);
+                    }
+                });
+            });
+        }
+        attachHandler();
+        new MutationObserver(attachHandler).observe(
+            window.parent.document.body, { childList: true, subtree: true }
+        );
+    })();
+    </script>
+    """, height=0)
 
     if st.button("리서치 실행", key="btn_research"):
         if not question.strip():
             st.error("질문을 입력하세요.")
         else:
-            with st.spinner("POST /research 호출 중 (최대 30초)…"):
-                res = _post("/research", {"question": question}) or _mock_research(question)
+            with st.status("에이전트 리서치 진행 중…", expanded=True) as status:
+                st.write("LangGraph 파이프라인 실행 (planner → researcher → analyst)")
+                res = _post("/research", {"question": question}, timeout=_TIMEOUT_RESEARCH)
+                if res is None:
+                    res = _mock_research(question)
+                    status.update(label="API 미연결 — mock 응답", state="error", expanded=False)
+                else:
+                    status.update(label="리서치 완료", state="complete", expanded=False)
 
             col1, col2 = st.columns([2, 1])
             with col1:
                 with st.container(border=True):
                     st.markdown("**분석 리포트**")
-                    st.markdown(res["report"])
+                    report_text = re.sub(
+                        r'\(출처: ([^)\n]+)$', r'(출처: \1)', res["report"], flags=re.MULTILINE
+                    )
+                    st.markdown(report_text)
             with col2:
                 with st.container(border=True):
                     st.markdown("**출처 URL**")
                     for url in res.get("sources", []):
-                        st.markdown(f"- [{url}]({url})")
+                        domain = urlparse(url).netloc or url
+                        st.markdown(f"- [{domain}]({url})")
                 with st.container(border=True):
                     st.markdown("**리스크 태그**")
                     tags = res.get("risk_tags", [])
@@ -483,6 +566,14 @@ def research_page() -> None:
 
 
 def anova_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        strategies: list[str] = st.multiselect(
+            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            help="사후 검정 결과 필터",
+        )
+
     st.title("ANOVA 검증 결과")
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
@@ -543,6 +634,11 @@ def anova_page() -> None:
 
 
 def risk_page() -> None:
+    with st.sidebar:
+        st.divider()
+        st.subheader(":material/tune: 분석 설정")
+        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="risk_period")
+
     st.title("리스크 모니터링")
     with st.spinner("GET /backtest 호출 중…"):
         bt6 = _get("/backtest") or _mock_backtest()
@@ -606,6 +702,26 @@ def risk_page() -> None:
 
 st.set_page_config(page_title="AI Robo Advisor", layout="wide", page_icon="📈")
 
+st.markdown("""
+<style>
+/* 기본 running 인디케이터(운동하는 사람) 숨기고 🌀 이모지로 교체
+   버전 의존 CSS 패치 — streamlit 버전 고정 필요 (requirements.txt 참고) */
+@keyframes spin { to { transform: rotate(360deg); } }
+[data-testid="stStatusWidget"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px;
+}
+[data-testid="stStatusWidget"] svg { display: none !important; }
+[data-testid="stStatusWidget"]::before {
+    content: "🌀";
+    font-size: 18px;
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 네비게이션 (템플릿과 동일한 st.navigation + st.Page 방식)
 pg = st.navigation([
     st.Page(portfolio_page, title="포트폴리오 현황", icon=":material/pie_chart:",   default=True),
@@ -616,21 +732,7 @@ pg = st.navigation([
     st.Page(risk_page,      title="리스크 모니터링", icon=":material/shield:"),
 ])
 
-# 네비게이션 아래 전역 필터 (템플릿 Filters 패턴)
 with st.sidebar:
-    st.divider()
-    st.subheader(":material/filter_alt: Filters")
-    period: str = st.selectbox(
-        "분석 기간",
-        list(_PERIOD_MONTHS.keys()),
-        index=3,
-    )
-    strategies: list[str] = st.multiselect(
-        "비교 전략",
-        ["PPO", "MVO", "동일비중"],
-        default=["PPO"],
-        help="강화학습 성과·ANOVA 탭에서 비교할 전략",
-    )
     st.divider()
     st.caption(f"API: `{API_BASE_URL}`")
     st.caption("FastAPI 미연결 시 mock 데이터로 렌더링됩니다.")
