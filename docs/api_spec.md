@@ -312,6 +312,38 @@ state = run_graph("삼성전자 최근 투자 리스크 분석해줘")
 #   state["messages"]         → list  LangGraph 메시지 (reasoning_trace fallback)
 ```
 
+#### 스트리밍 응답 `POST /research/stream`
+
+멘토 피드백에 따라 Streamlit `st.write_stream()` 연동용 스트리밍 엔드포인트를 별도로 제공한다.
+기존 `POST /research` 동기 응답 계약은 유지하고, 실시간 로그가 필요한 화면만 아래 엔드포인트를 사용한다.
+
+| 항목 | 값 |
+|------|----|
+| URL | `POST /research/stream` |
+| 요청 바디 | `ResearchRequest`와 동일 (`{"question": "..."}`) |
+| 응답 타입 | `StreamingResponse` |
+| Media Type | `application/x-ndjson` |
+| Proxy 헤더 | `X-Accel-Buffering: no` |
+
+NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
+
+```json
+{"type":"start","question":"삼성전자 HBM 전망은?"}
+{"type":"on_chain_start","name":"planner","data":{}}
+{"type":"on_chain_end","name":"analyst","data":{}}
+{"type":"complete","question":"삼성전자 HBM 전망은?"}
+```
+
+`OPENAI_API_KEY`가 없거나 LangGraph 실행 중 오류가 나면 연결을 오래 유지하지 않고 fallback 이벤트를 반환한다.
+
+```json
+{"type":"fallback","name":"research","data":{"status":"fallback","question":"..."}}
+```
+
+5초 기준은 전체 리서치 완료 시간이 아니라 **요청에 대한 첫 응답/상태 반영 시간(TTFB)** 으로 해석한다.
+전체 LangGraph 완료가 5초를 넘어갈 수 있으므로, 장기 연결을 heartbeat로 유지하기보다 짧은 이벤트 스트림 또는 fallback으로 응답한다.
+멀티 사용자 환경에서 Streamlit `requests` 스트리밍은 워커를 점유할 수 있으므로, 화면별 갱신 주기가 필요한 경우 polling 방식도 병행 검토한다.
+
 ---
 
 ### 3.5 GET /backtest
