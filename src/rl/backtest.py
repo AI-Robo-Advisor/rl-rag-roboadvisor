@@ -221,7 +221,7 @@ def run_window_backtest(
     test_ret = _slice(returns, window["test_start"], window["test_end"])
     test_feat = _slice(features, window["test_start"], window["test_end"])
     bench = _benchmark(test_ret)
-    model_path = MODELS_DIR / f"ppo_{reward}_{window['name']}.zip"
+    model_path = MODELS_DIR / f"ppo_{reward}_{window['name']}_risk.zip"
 
     portfolio, weights_df = _run_model(test_ret, test_feat, model_path, reward)
 
@@ -307,7 +307,7 @@ def run_stress_test(reward: str = "return") -> dict[str, Any]:
     stress_feat = _slice(features, STRESS_START, STRESS_END)
     bench = _benchmark(stress_ret)
 
-    model_path = MODELS_DIR / f"ppo_{reward}_w1.zip"
+    model_path = MODELS_DIR / f"ppo_{reward}_w1_risk.zip"
     portfolio, _ = _run_model(stress_ret, stress_feat, model_path, reward)
 
     common = portfolio.index.intersection(bench.index)
