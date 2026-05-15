@@ -33,6 +33,7 @@ from src.rl.mvo import run_mvo_all_windows
 logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path("data/results")
+REGIME_LABELS_PATH = Path("data/processed/regime_labels.csv")
 
 # OOS 국면별 날짜 구간 — PPO/MVO/EW 모두 데이터가 있는 구간만 포함 (균형 3×3 설계)
 # crisis(코로나 2020)는 in-sample이라 backtest CSV 없음 → SHAP 전용으로 분리
@@ -41,6 +42,52 @@ _REGIME_SLICES: dict[str, list[tuple[str, str]]] = {
     "recovery":  [("2023-01-01", "2023-12-31")],   # W2 test — 회복장
     "bull":      [("2024-01-01", "2024-12-31")],   # W3 test — AI 랠리 강세장
 }
+
+
+# ── 공개 API (레이블 생성) ────────────────────────────────────────────────────
+
+def generate_regime_labels(returns: pd.DataFrame) -> pd.DataFrame:
+    """시장 국면 레이블을 날짜별로 할당하고 CSV로 저장한다.
+
+    labels_and_interfaces.md Section 1 기준 국면 정의:
+        crisis:    2020-02-01 ~ 2020-05-31 (코로나 폭락, SHAP 전용)
+        rate_hike: 2022-01-01 ~ 2022-12-31 (금리 급등, OOS W1)
+        recovery:  2023-01-01 ~ 2023-12-31 (금리 인상 후 회복, OOS W2)
+        bull:      2024-01-01 ~ 2024-12-31 (AI 랠리 강세장, OOS W3)
+        normal:    그 외 모든 날짜
+
+    Args:
+        returns: 전체 기간 raw 로그수익률 DataFrame. index가 날짜 기준으로 사용된다.
+
+    Returns:
+        date·regime 두 컬럼을 가진 DataFrame.
+        data/processed/regime_labels.csv 로도 저장된다.
+    """
+    # 날짜 인덱스 기반으로 레이블 할당 — 기본값 normal
+    labels = pd.Series("normal", index=returns.index, name="regime")
+
+    # 국면별 날짜 구간 정의 (labels_and_interfaces.md Section 1 기준)
+    regime_ranges: list[tuple[str, str, str]] = [
+        ("crisis",    "2020-02-01", "2020-05-31"),
+        ("rate_hike", "2022-01-01", "2022-12-31"),
+        ("recovery",  "2023-01-01", "2023-12-31"),
+        ("bull",      "2024-01-01", "2024-12-31"),
+    ]
+
+    for regime, start, end in regime_ranges:
+        mask = (labels.index >= start) & (labels.index <= end)
+        labels.loc[mask] = regime
+
+    result = pd.DataFrame({
+        "date": labels.index.strftime("%Y-%m-%d"),
+        "regime": labels.values,
+    })
+
+    REGIME_LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    result.to_csv(REGIME_LABELS_PATH, index=False)
+    logger.info("regime_labels.csv 저장 완료: %s (%d행)", REGIME_LABELS_PATH, len(result))
+
+    return result
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -338,7 +385,7 @@ def run_market_regime_comparison(returns: pd.DataFrame) -> dict:
 
 
 def run_all_anova(returns: pd.DataFrame) -> list[dict]:
-    """3종 ANOVA 실험 전체 실행.
+    """3종 ANOVA 실험 전체 실행. regime_labels.csv도 함께 생성한다.
 
     Args:
         returns: 전체 기간 raw 로그수익률 DataFrame.
@@ -346,6 +393,8 @@ def run_all_anova(returns: pd.DataFrame) -> list[dict]:
     Returns:
         [reward_function_comparison, strategy_comparison, market_regime_comparison] 순서.
     """
+    generate_regime_labels(returns)
+
     return [
         run_reward_function_comparison(returns),
         run_strategy_comparison(returns),
