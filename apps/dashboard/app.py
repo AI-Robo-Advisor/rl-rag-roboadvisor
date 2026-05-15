@@ -24,6 +24,12 @@ except ModuleNotFoundError:
     # Streamlit file-entry execution inside Docker may not resolve the package root.
     from api_client import get_json, post_json
 
+try:
+    from config import TICKERS_GLOBAL, TICKERS_KR
+except ModuleNotFoundError:
+    TICKERS_GLOBAL = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ"]
+    TICKERS_KR = ["069500", "114260"]
+
 # ─────────────────────────────────────────────
 # 설정
 # ─────────────────────────────────────────────
@@ -172,7 +178,7 @@ def _echarts_gauge(
 # Mock 데이터
 # ─────────────────────────────────────────────
 
-_ASSETS = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"]
+_ASSETS = TICKERS_GLOBAL + TICKERS_KR
 _rng = np.random.default_rng(42)
 
 
@@ -698,7 +704,8 @@ st.set_page_config(page_title="AI Robo Advisor", layout="wide", page_icon="📈"
 
 st.markdown("""
 <style>
-/* 기본 running 인디케이터(운동하는 사람) 숨기고 🌀 이모지로 교체 */
+/* 기본 running 인디케이터(운동하는 사람) 숨기고 🌀 이모지로 교체
+   버전 의존 CSS 패치 — streamlit 버전 고정 필요 (requirements.txt 참고) */
 @keyframes spin { to { transform: rotate(360deg); } }
 [data-testid="stStatusWidget"] {
     display: inline-flex !important;
