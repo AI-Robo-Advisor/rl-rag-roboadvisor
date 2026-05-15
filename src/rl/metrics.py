@@ -132,7 +132,7 @@ def mdd(returns: pd.Series) -> float:
     """
     if returns.empty:
         return 0.0
-    cumulative = (1 + returns).cumprod()
+    cumulative = np.exp(returns.cumsum())
     rolling_max = cumulative.cummax()
     drawdown = (cumulative - rolling_max) / rolling_max
     return float(-drawdown.min())

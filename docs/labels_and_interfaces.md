@@ -206,8 +206,8 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 ### 4-1. TODO — Walk-Forward 정규화 연동
 
 - [ ] `train_walkforward.py`는 `raw_features.parquet`에서 학습 구간 통계(mean/std)를 계산한다.
-- [ ] `backtest.py`는 테스트 구간을 학습 구간 통계로만 변환한다.
-- [ ] `features.parquet`을 Walk-Forward 학습/백테스트의 직접 입력으로 사용하지 않는다.
+- [x] `backtest.py`는 테스트 구간을 학습 구간 통계로만 변환한다.
+- [x] `features.parquet`을 Walk-Forward 학습/백테스트의 직접 입력으로 사용하지 않는다.
 - [ ] 정규화 통계 저장 경로를 팀 합의 후 고정한다. 예: `data/processed/scalers/{window}_feature_stats.json`.
 
 ---

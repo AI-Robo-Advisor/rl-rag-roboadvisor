@@ -19,6 +19,7 @@ Safe-Guard 임계값 15% 근거:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -59,7 +60,8 @@ WINDOWS: list[dict[str, str]] = [
 REWARD_TYPES: list[str] = ["return", "sharpe", "mdd"]
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
-FEATURES_PATH = Path("data/processed/features.parquet")
+FEATURES_PATH = Path("data/processed/raw_features.parquet")
+SCALERS_DIR = Path("data/processed/scalers")
 RESULTS_DIR = Path("data/results")
 MODELS_DIR = Path("models")
 
@@ -75,6 +77,64 @@ def _load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     returns = pd.read_parquet(RETURNS_PATH)
     features = pd.read_parquet(FEATURES_PATH)
     return returns, features
+
+
+def _normalize_window_features(
+    raw_features: pd.DataFrame,
+    train_start: str,
+    train_end: str,
+    window_name: str,
+) -> pd.DataFrame:
+    """학습 구간 통계로 전체 raw_features를 Z-score 정규화한다.
+
+    look-ahead bias 방지를 위해 반드시 학습 구간(train_start~train_end)의
+    mean/std만 사용한다. 테스트 구간에는 이 통계를 그대로 적용한다.
+
+    저장된 scaler 파일이 있으면 로드하고, 없으면 학습 구간에서 직접 계산한다.
+    scaler 파일 경로: SCALERS_DIR / f"{window_name}_feature_stats.json"
+    JSON 포맷: {"mean": {col: val, ...}, "std": {col: val, ...}}
+
+    Args:
+        raw_features: 정규화 전 전체 기간 피처 DataFrame.
+        train_start: 학습 시작일 (ISO 형식, 예: "2018-01-01").
+        train_end: 학습 종료일 (ISO 형식, 예: "2021-12-31").
+        window_name: 윈도우 이름 (예: "w1"). scaler 파일명에 사용.
+
+    Returns:
+        train mean/std로 Z-score 변환된 전체 기간 피처 DataFrame.
+        std=0인 컬럼은 1e-8로 대체해 zero-division을 방지한다.
+    """
+    scaler_path = SCALERS_DIR / f"{window_name}_feature_stats.json"
+
+    if scaler_path.exists():
+        try:
+            with open(scaler_path, "r") as f:
+                stats = json.load(f)
+            mean = pd.Series(stats["mean"])
+            std = pd.Series(stats["std"])
+            logger.info("[%s] scaler 파일 로드: %s", window_name, scaler_path)
+        except Exception as exc:
+            logger.warning(
+                "[%s] scaler 파일 로드 실패 (%s) — 학습 구간 직접 계산으로 fallback",
+                window_name, exc,
+            )
+            train_data = raw_features.loc[train_start:train_end]
+            mean = train_data.mean()
+            std = train_data.std()
+    else:
+        logger.info(
+            "[%s] scaler 파일 없음 — 학습 구간(%s ~ %s)에서 직접 계산",
+            window_name, train_start, train_end,
+        )
+        train_data = raw_features.loc[train_start:train_end]
+        mean = train_data.mean()
+        std = train_data.std()
+
+    # std=0 방지: 표준편차가 0인 컬럼은 1e-8로 대체
+    std = std.replace(0, 1e-8)
+
+    normalized = (raw_features - mean) / std
+    return normalized
 
 
 def _slice(df: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
@@ -219,7 +279,14 @@ def run_window_backtest(
         (성과 지표 dict, 포트폴리오 수익률 Series, 비중 DataFrame)
     """
     test_ret = _slice(returns, window["test_start"], window["test_end"])
-    test_feat = _slice(features, window["test_start"], window["test_end"])
+    # per-window 정규화: train mean/std로 전체 정규화 후 테스트 구간만 슬라이싱
+    normalized_feat = _normalize_window_features(
+        features,
+        window["train_start"],
+        window["train_end"],
+        window["name"],
+    )
+    test_feat = _slice(normalized_feat, window["test_start"], window["test_end"])
     bench = _benchmark(test_ret)
     model_path = MODELS_DIR / f"ppo_{reward}_{window['name']}_risk.zip"
 
@@ -304,7 +371,14 @@ def run_stress_test(reward: str = "return") -> dict[str, Any]:
     """
     returns, features = _load_data()
     stress_ret = _slice(returns, STRESS_START, STRESS_END)
-    stress_feat = _slice(features, STRESS_START, STRESS_END)
+    # 스트레스 테스트는 W1 train 구간(2018-01-01~2021-12-31) 통계로 정규화
+    normalized_feat = _normalize_window_features(
+        features,
+        train_start="2018-01-01",
+        train_end="2021-12-31",
+        window_name="w1",
+    )
+    stress_feat = _slice(normalized_feat, STRESS_START, STRESS_END)
     bench = _benchmark(stress_ret)
 
     model_path = MODELS_DIR / f"ppo_{reward}_w1_risk.zip"
