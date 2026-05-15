@@ -1,6 +1,6 @@
 # Walk-Forward 분할 계획
 
-> 관련 모듈: `src/rl/env.py` (이문정), `src/rl/backtest.py` (강유영)
+> 관련 모듈: `src/data/collector.py` (박지민), `src/rl/train_walkforward.py` (이문정), `src/rl/backtest.py` (강유영), `src/rl/env.py` (이문정)
 >
 > 데이터 기간: 2018-01-03 ~ 2025-12-30 (returns.parquet 기준, 총 1898 거래일)
 
@@ -52,10 +52,21 @@ WINDOWS = [
 > 모델 파일 네이밍 → `docs/labels_and_interfaces.md` 3-3 참고
 
 각 윈도우에서:
-1. 학습 기간 데이터만으로 Z-score 파라미터(mean, std) 계산
-2. 계산된 파라미터로 검증 기간도 정규화 (학습 기간 통계 재사용)
-3. PPO 에이전트를 학습 기간 데이터로 훈련
-4. 검증 기간 데이터로 성과 측정
+1. `data/processed/raw_features.parquet`를 날짜로 분리
+2. 학습 기간 데이터만으로 Z-score 파라미터(mean, std) 계산
+3. 계산된 파라미터로 학습 기간과 검증 기간을 모두 정규화 (학습 기간 통계 재사용)
+4. 정규화된 학습 feature를 `PortfolioEnv(features_df=...)`에 전달
+5. 정규화된 검증 feature로 성과 측정
+
+`data/processed/features.parquet`은 전체 기간 Z-score가 적용된 legacy 산출물이므로
+Walk-Forward 학습/백테스트에 직접 사용하지 않는다.
+
+## TODO — RL 학습/백테스트 구현
+
+- [ ] `train_walkforward.py`에서 `raw_features.parquet` 기반 per-window 정규화 구현
+- [ ] window별 mean/std 저장 및 재사용 경로 확정
+- [ ] `backtest.py`에서 test feature를 train mean/std로 변환
+- [ ] look-ahead bias 제거 후 PPO 모델과 백테스트 결과 재생성
 
 ---
 
