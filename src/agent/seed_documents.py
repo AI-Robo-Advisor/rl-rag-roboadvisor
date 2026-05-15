@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from src.agent.vectorstore import collection_document_count, upsert_documents
-
 SEED_DOCUMENTS: list[dict[str, str]] = [
     {
         "id": "seed_spy_qqq_rates_2026",
@@ -73,6 +71,8 @@ SEED_DOCUMENTS: list[dict[str, str]] = [
 
 def ensure_seed_documents(persist_dir: str) -> int:
     """Seed deterministic RAG documents when the local Chroma collection is empty."""
+    from src.agent.vectorstore import collection_document_count, upsert_documents
+
     if collection_document_count(persist_dir) > 0:
         return 0
 

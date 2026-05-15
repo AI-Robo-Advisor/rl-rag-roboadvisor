@@ -365,6 +365,10 @@ def build_research_response(question: str) -> ResearchResponse:
 @lru_cache(maxsize=64)
 def _build_fast_research_response(question: str) -> ResearchResponse | None:
     """Build a bounded extractive RAG report from local Chroma documents."""
+    seed_response = _build_seed_research_response(question)
+    if seed_response:
+        return seed_response
+
     try:
         from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
         from src.agent.vectorstore import query_documents
@@ -585,7 +589,7 @@ def build_module_statuses() -> dict[str, str]:
     return {
         "data": "ready" if _can_load_data_files() else "fallback",
         "rl": "ready" if _is_ppo_ready() else "fallback",
-        "rag": "ready" if settings.OPENAI_API_KEY and _rag_has_documents() else "fallback",
+        "rag": "ready" if settings.OPENAI_API_KEY and _has_local_research_corpus() else "fallback",
         "shap": "ready" if _is_shap_ready() else "fallback",
         "backtest": "ready" if _is_backtest_ready() else "fallback",
     }
@@ -640,7 +644,6 @@ def warm_runtime_caches() -> None:
     try:
         _load_returns()
         _load_features()
-        _ensure_rag_seed_documents()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -819,6 +822,21 @@ def _rag_has_documents() -> bool:
         from src.agent.vectorstore import collection_document_count
 
         return collection_document_count(settings.CHROMA_PERSIST_DIR) > 0
+    except Exception:
+        return False
+
+
+def _has_local_research_corpus() -> bool:
+    """Return whether /research has local documents available for ready responses."""
+    return _rag_has_documents() or _has_seed_documents()
+
+
+def _has_seed_documents() -> bool:
+    """Return whether bundled deterministic research seed documents are available."""
+    try:
+        from src.agent.seed_documents import SEED_DOCUMENTS
+
+        return bool(SEED_DOCUMENTS)
     except Exception:
         return False
 
