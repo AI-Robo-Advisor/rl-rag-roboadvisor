@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 import requests
@@ -56,3 +57,36 @@ def post_json(
         if log:
             log(f"[MOCK][{endpoint}] {message}")
         return None
+
+
+def stream_ndjson(
+    base_url: str,
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    formatter: Callable[[dict[str, Any]], str],
+    timeout: int = 60,
+    warn: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | None = print,
+):
+    """Stream newline-delimited JSON events as formatted strings."""
+    try:
+        with requests.post(
+            f"{base_url}{endpoint}",
+            json=payload,
+            stream=True,
+            timeout=timeout,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                event = json.loads(line.decode("utf-8"))
+                yield formatter(event)
+    except (requests.RequestException, json.JSONDecodeError) as exc:
+        message = _mock_warning_message(endpoint, exc)
+        if warn:
+            warn(message)
+        if log:
+            log(f"[MOCK][{endpoint}] {message}")
+        yield message

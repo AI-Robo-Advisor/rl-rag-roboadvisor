@@ -5,6 +5,7 @@ streamlit-echarts 기반 인터랙티브 차트 + st.navigation 사이드바 네
 FastAPI HTTP 통신만 사용하며, 모델을 직접 로드하지 않습니다.
 API 미완성 상태에서는 mock 데이터로 UI를 렌더링합니다.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,10 +20,10 @@ import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
 
 try:
-    from apps.dashboard.api_client import get_json, post_json
+    from apps.dashboard.api_client import get_json, post_json, stream_ndjson
 except ModuleNotFoundError:
     # Streamlit file-entry execution inside Docker may not resolve the package root.
-    from api_client import get_json, post_json
+    from api_client import get_json, post_json, stream_ndjson
 
 try:
     from config import TICKERS_GLOBAL, TICKERS_KR
@@ -38,8 +39,18 @@ API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
 _TIMEOUT_DEFAULT: int = 10
 _TIMEOUT_RESEARCH: int = 60  # LangGraph 루프 최대 3회 대응
 
-_PALETTE = ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de",
-            "#3ba272", "#fc8452", "#9a60b4", "#ea7ccc", "#48b8d0"]
+_PALETTE = [
+    "#5470c6",
+    "#91cc75",
+    "#fac858",
+    "#ee6666",
+    "#73c0de",
+    "#3ba272",
+    "#fc8452",
+    "#9a60b4",
+    "#ea7ccc",
+    "#48b8d0",
+]
 
 _PERIOD_MONTHS = {"1개월": 21, "3개월": 63, "6개월": 126, "12개월": 252, "전체": None}
 
@@ -47,6 +58,7 @@ _PERIOD_MONTHS = {"1개월": 21, "3개월": 63, "6개월": 126, "12개월": 252,
 # ─────────────────────────────────────────────
 # API helpers
 # ─────────────────────────────────────────────
+
 
 def _get(endpoint: str, params: dict | None = None) -> dict[str, Any] | None:
     return get_json(
@@ -68,23 +80,66 @@ def _post(endpoint: str, payload: dict, timeout: int = _TIMEOUT_DEFAULT) -> dict
     )
 
 
+def _format_research_event(event: dict[str, Any]) -> str:
+    """Format one /research/stream NDJSON event for st.write_stream."""
+    event_type = event.get("type", "event")
+    name = event.get("name") or "research"
+    data = event.get("data") or {}
+
+    if event_type == "start":
+        return f"[start] {event.get('question', '')}\n"
+    if event_type == "fallback":
+        report = data.get("report", "")
+        tags = ", ".join(data.get("risk_tags", []))
+        return f"[fallback] {report}\n리스크 태그: {tags}\n"
+    if event_type == "complete":
+        return "[complete] 리서치 스트림 종료\n"
+
+    summary = ""
+    if isinstance(data, dict):
+        output = data.get("output") or data.get("chunk") or data.get("input")
+        if output:
+            summary = str(output)
+    return f"[{event_type}][{name}] {summary}\n"
+
+
+def _stream_research(question: str):
+    return stream_ndjson(
+        API_BASE_URL,
+        "/research/stream",
+        {"question": question},
+        formatter=_format_research_event,
+        timeout=_TIMEOUT_RESEARCH,
+        warn=st.warning,
+    )
+
+
 # ─────────────────────────────────────────────
 # ECharts 공통 빌더
 # ─────────────────────────────────────────────
 
+
 def _echarts_line(
-    x: list, series: list[dict], title: str = "",
-    height: str = "380px", y_formatter: str = "",
-    zoom: bool = True, key: str = "chart", legend: bool = True,
+    x: list,
+    series: list[dict],
+    title: str = "",
+    height: str = "380px",
+    y_formatter: str = "",
+    zoom: bool = True,
+    key: str = "chart",
+    legend: bool = True,
 ) -> None:
     _legend = (
         {
-            "top": 28, "type": "scroll",
-            "itemWidth": 28, "itemHeight": 14,
+            "top": 28,
+            "type": "scroll",
+            "itemWidth": 28,
+            "itemHeight": 14,
             "textStyle": {"fontSize": 12},
             "icon": "roundRect",
         }
-        if legend else {"show": False}
+        if legend
+        else {"show": False}
     )
     _grid_top = "22%" if legend else "12%"
     opts: dict = {
@@ -93,8 +148,7 @@ def _echarts_line(
         "legend": _legend,
         "grid": {"bottom": "18%" if zoom else "8%", "top": _grid_top, "containLabel": True},
         "xAxis": {"type": "category", "data": x, "boundaryGap": False},
-        "yAxis": {"type": "value",
-                  "axisLabel": {"formatter": y_formatter} if y_formatter else {}},
+        "yAxis": {"type": "value", "axisLabel": {"formatter": y_formatter} if y_formatter else {}},
         "series": series,
     }
     if zoom:
@@ -106,12 +160,17 @@ def _echarts_line(
 
 
 def _echarts_bar_h(
-    names: list, values: list, title: str = "",
-    colors: list | None = None, height: str = "360px", key: str = "bar_h",
+    names: list,
+    values: list,
+    title: str = "",
+    colors: list | None = None,
+    height: str = "360px",
+    key: str = "bar_h",
 ) -> None:
     bar_data = (
         [{"value": v, "itemStyle": {"color": c}} for v, c in zip(values, colors)]
-        if colors else values
+        if colors
+        else values
     )
     opts = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
@@ -125,51 +184,74 @@ def _echarts_bar_h(
 
 
 def _echarts_donut(
-    labels: list, values: list, title: str = "",
-    height: str = "380px", key: str = "donut",
+    labels: list,
+    values: list,
+    title: str = "",
+    height: str = "380px",
+    key: str = "donut",
 ) -> None:
     data = [{"name": l, "value": round(v, 4)} for l, v in zip(labels, values)]
     opts = {
         "title": {"text": title, "left": "center", "top": 4, "textStyle": {"fontSize": 14}},
         "tooltip": {"trigger": "item", "formatter": "{b}: {d}%"},
         "legend": {
-            "bottom": 6, "type": "scroll",
-            "itemWidth": 12, "itemHeight": 12,
+            "bottom": 6,
+            "type": "scroll",
+            "itemWidth": 12,
+            "itemHeight": 12,
             "textStyle": {"fontSize": 11},
             "icon": "circle",
         },
-        "series": [{
-            "type": "pie", "radius": ["38%", "65%"], "avoidLabelOverlap": True,
-            "itemStyle": {"borderRadius": 8, "borderColor": "#fff", "borderWidth": 2},
-            "label": {"show": True, "formatter": "{b}\n{d}%", "fontSize": 11},
-            "emphasis": {"label": {"show": True, "fontSize": 13, "fontWeight": "bold"}},
-            "data": data,
-        }],
+        "series": [
+            {
+                "type": "pie",
+                "radius": ["38%", "65%"],
+                "avoidLabelOverlap": True,
+                "itemStyle": {"borderRadius": 8, "borderColor": "#fff", "borderWidth": 2},
+                "label": {"show": True, "formatter": "{b}\n{d}%", "fontSize": 11},
+                "emphasis": {"label": {"show": True, "fontSize": 13, "fontWeight": "bold"}},
+                "data": data,
+            }
+        ],
     }
     st_echarts(options=opts, height=height, theme="streamlit", key=key)
 
 
 def _echarts_gauge(
-    value: float, title: str, max_val: float = 0.1,
-    height: str = "260px", key: str = "gauge",
+    value: float,
+    title: str,
+    max_val: float = 0.1,
+    height: str = "260px",
+    key: str = "gauge",
 ) -> None:
     pct = round(value * 100, 2)
     color = "#ee6666" if pct > 3 else "#fac858" if pct > 1.5 else "#91cc75"
     opts = {
-        "series": [{
-            "type": "gauge", "min": 0, "max": round(max_val * 100, 1),
-            "progress": {"show": True, "width": 14},
-            "axisLine": {"lineStyle": {"width": 14}},
-            "axisTick": {"show": False},
-            "splitLine": {"length": 10, "lineStyle": {"width": 2, "color": "#999"}},
-            "axisLabel": {"distance": 20, "fontSize": 11,
-                          "formatter": JsCode("function(v){return v+'%'}")},
-            "detail": {"valueAnimation": True, "fontSize": 28, "offsetCenter": [0, "60%"],
-                       "formatter": JsCode("function(v){return v.toFixed(2)+'%'}")},
-            "title": {"offsetCenter": [0, "88%"], "fontSize": 12},
-            "data": [{"value": pct, "name": title}],
-            "itemStyle": {"color": color},
-        }],
+        "series": [
+            {
+                "type": "gauge",
+                "min": 0,
+                "max": round(max_val * 100, 1),
+                "progress": {"show": True, "width": 14},
+                "axisLine": {"lineStyle": {"width": 14}},
+                "axisTick": {"show": False},
+                "splitLine": {"length": 10, "lineStyle": {"width": 2, "color": "#999"}},
+                "axisLabel": {
+                    "distance": 20,
+                    "fontSize": 11,
+                    "formatter": JsCode("function(v){return v+'%'}"),
+                },
+                "detail": {
+                    "valueAnimation": True,
+                    "fontSize": 28,
+                    "offsetCenter": [0, "60%"],
+                    "formatter": JsCode("function(v){return v.toFixed(2)+'%'}"),
+                },
+                "title": {"offsetCenter": [0, "88%"], "fontSize": 12},
+                "data": [{"value": pct, "name": title}],
+                "itemStyle": {"color": color},
+            }
+        ],
     }
     st_echarts(options=opts, height=height, theme="streamlit", key=key)
 
@@ -202,10 +284,18 @@ def _mock_backtest() -> dict:
     prices = np.cumprod(1 + wf)
     drawdown = ((prices - np.maximum.accumulate(prices)) / np.maximum.accumulate(prices)).tolist()
     metrics = {
-        "cumulative_return": 0.248, "cagr": 0.231, "annualized_volatility": 0.182,
-        "var_95": 0.021, "cvar_95": 0.031, "mdd": 0.127,
-        "sharpe_ratio": 1.27, "sortino_ratio": 1.85, "calmar_ratio": 1.82,
-        "alpha": 0.043, "beta": 0.92, "information_ratio": 0.68,
+        "cumulative_return": 0.248,
+        "cagr": 0.231,
+        "annualized_volatility": 0.182,
+        "var_95": 0.021,
+        "cvar_95": 0.031,
+        "mdd": 0.127,
+        "sharpe_ratio": 1.27,
+        "sortino_ratio": 1.85,
+        "calmar_ratio": 1.82,
+        "alpha": 0.043,
+        "beta": 0.92,
+        "information_ratio": 0.68,
     }
     return {
         "dates": dates,
@@ -219,45 +309,90 @@ def _mock_backtest() -> dict:
         "anova": [
             {
                 "name": "reward_function_comparison",
-                "f_statistic": 8.71, "p_value": 0.0002, "eta_squared": 0.142,
+                "f_statistic": 8.71,
+                "p_value": 0.0002,
+                "eta_squared": 0.142,
                 "post_hoc": [
-                    {"group1": "PPO-return", "group2": "PPO-sharpe", "meandiff": 0.0003, "p_adj": 0.031, "reject": True},
-                    {"group1": "PPO-return", "group2": "PPO-mdd",    "meandiff": 0.0005, "p_adj": 0.004, "reject": True},
-                    {"group1": "PPO-sharpe", "group2": "PPO-mdd",    "meandiff": 0.0002, "p_adj": 0.218, "reject": False},
+                    {
+                        "group1": "PPO-return",
+                        "group2": "PPO-sharpe",
+                        "meandiff": 0.0003,
+                        "p_adj": 0.031,
+                        "reject": True,
+                    },
+                    {
+                        "group1": "PPO-return",
+                        "group2": "PPO-mdd",
+                        "meandiff": 0.0005,
+                        "p_adj": 0.004,
+                        "reject": True,
+                    },
+                    {
+                        "group1": "PPO-sharpe",
+                        "group2": "PPO-mdd",
+                        "meandiff": 0.0002,
+                        "p_adj": 0.218,
+                        "reject": False,
+                    },
                 ],
             },
             {
                 "name": "strategy_comparison",
-                "f_statistic": 12.34, "p_value": 0.0003, "eta_squared": 0.187,
+                "f_statistic": 12.34,
+                "p_value": 0.0003,
+                "eta_squared": 0.187,
                 "post_hoc": [
-                    {"group1": "PPO",  "group2": "MVO",    "meandiff": 0.0008, "p_adj": 0.002, "reject": True},
-                    {"group1": "PPO",  "group2": "동일비중", "meandiff": 0.0006, "p_adj": 0.041, "reject": True},
-                    {"group1": "MVO",  "group2": "동일비중", "meandiff": 0.0002, "p_adj": 0.312, "reject": False},
+                    {
+                        "group1": "PPO",
+                        "group2": "MVO",
+                        "meandiff": 0.0008,
+                        "p_adj": 0.002,
+                        "reject": True,
+                    },
+                    {
+                        "group1": "PPO",
+                        "group2": "동일비중",
+                        "meandiff": 0.0006,
+                        "p_adj": 0.041,
+                        "reject": True,
+                    },
+                    {
+                        "group1": "MVO",
+                        "group2": "동일비중",
+                        "meandiff": 0.0002,
+                        "p_adj": 0.312,
+                        "reject": False,
+                    },
                 ],
             },
             {
                 "name": "market_regime_comparison",
-                "f_statistic": 2.07, "p_value": 0.127, "eta_squared": 0.038,
+                "f_statistic": 2.07,
+                "p_value": 0.127,
+                "eta_squared": 0.038,
                 "post_hoc": [],
-                "interaction":     {"f_statistic": 3.14, "p_value": 0.014, "significant": True},
+                "interaction": {"f_statistic": 3.14, "p_value": 0.014, "significant": True},
                 "strategy_effect": {"f_statistic": 4.52, "p_value": 0.011},
             },
         ],
-        "var_95": metrics["var_95"], "cvar_95": metrics["cvar_95"], "mdd": metrics["mdd"],
+        "var_95": metrics["var_95"],
+        "cvar_95": metrics["cvar_95"],
+        "mdd": metrics["mdd"],
         "safeguard": {"active": False, "triggered_at": None, "current_drawdown": 0.043},
     }
 
 
 def _mock_explain(target_date: str) -> dict:
-    feat = [
-        f"{t}_{f}"
-        for t in _ASSETS
-        for f in ("return", "RSI", "MACD", "MACD_signal")
-    ]
+    feat = [f"{t}_{f}" for t in _ASSETS for f in ("return", "RSI", "MACD", "MACD_signal")]
     vals = _rng.normal(0, 0.05, len(feat)).tolist()
     base = 0.002
-    return {"target_date": target_date, "feature_names": feat,
-            "shap_values": vals, "base_value": base, "prediction": base + sum(vals)}
+    return {
+        "target_date": target_date,
+        "feature_names": feat,
+        "shap_values": vals,
+        "base_value": base,
+        "prediction": base + sum(vals),
+    }
 
 
 def _mock_research(question: str) -> dict:
@@ -284,6 +419,7 @@ def _mock_research(question: str) -> dict:
 # 페이지 함수
 # ─────────────────────────────────────────────
 
+
 def portfolio_page() -> None:
     # 페이지 전용 사이드바 컨트롤
     with st.sidebar:
@@ -291,7 +427,10 @@ def portfolio_page() -> None:
         st.subheader(":material/tune: 포트폴리오 설정")
         risk_aversion = st.slider(
             "위험 회피 계수",
-            min_value=0.5, max_value=5.0, value=1.0, step=0.5,
+            min_value=0.5,
+            max_value=5.0,
+            value=1.0,
+            step=0.5,
             help="값이 클수록 분산 투자 비중 증가",
         )
         period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3)
@@ -300,7 +439,9 @@ def portfolio_page() -> None:
 
     if st.button("최적화 실행", key="btn_optimize"):
         with st.spinner("POST /optimize 호출 중…"):
-            data = _post("/optimize", {"risk_aversion": risk_aversion}) or _mock_optimize(risk_aversion)
+            data = _post("/optimize", {"risk_aversion": risk_aversion}) or _mock_optimize(
+                risk_aversion
+            )
     else:
         data = _mock_optimize(risk_aversion)
 
@@ -330,27 +471,43 @@ def portfolio_page() -> None:
                 labels=list(data["weights"].keys()),
                 values=list(data["weights"].values()),
                 title="자산 비중",
-                 key="p_donut",
+                key="p_donut",
             )
     with col2:
         with st.container(border=True):
             _echarts_line(
                 x=x,
                 series=[
-                    {"name": "포트폴리오", "type": "line", "smooth": True,
-                     "areaStyle": {"opacity": 0.15}, "data": port_vals,
-                     "itemStyle": {"color": _PALETTE[0]}},
-                    {"name": "벤치마크(KOSPI)", "type": "line", "smooth": True,
-                     "data": bm_vals, "itemStyle": {"color": _PALETTE[3]}},
+                    {
+                        "name": "포트폴리오",
+                        "type": "line",
+                        "smooth": True,
+                        "areaStyle": {"opacity": 0.15},
+                        "data": port_vals,
+                        "itemStyle": {"color": _PALETTE[0]},
+                    },
+                    {
+                        "name": "벤치마크(KOSPI)",
+                        "type": "line",
+                        "smooth": True,
+                        "data": bm_vals,
+                        "itemStyle": {"color": _PALETTE[3]},
+                    },
                 ],
-                title=f"누적 수익률 ({period})", key="p_line",
+                title=f"누적 수익률 ({period})",
+                key="p_line",
             )
 
     with st.expander("비중 상세 테이블"):
         st.dataframe(
-            pd.DataFrame({"자산": list(data["weights"].keys()),
-                          "비중": [f"{v:.2%}" for v in data["weights"].values()]}),
-            hide_index=True, use_container_width=True,
+            pd.DataFrame(
+                {
+                    "자산": list(data["weights"].keys()),
+                    "비중": [f"{v:.2%}" for v in data["weights"].values()],
+                }
+            ),
+            hide_index=True,
+            use_container_width=True,
         )
 
 
@@ -358,9 +515,13 @@ def rl_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
-        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="rl_period")
+        period: str = st.selectbox(
+            "분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="rl_period"
+        )
         strategies: list[str] = st.multiselect(
-            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            "비교 전략",
+            ["PPO", "MVO", "동일비중"],
+            default=["PPO"],
             help="강화학습 성과 탭에서 비교할 전략",
         )
 
@@ -376,10 +537,20 @@ def rl_page() -> None:
 
     m = bt["metrics"]
     c1, c2, c3 = st.columns(3)
-    c1.metric("누적 수익률", f"{m['cumulative_return']:.1%}", border=True,
-              chart_data=bt.get("wf_spark"), chart_type="area")
-    c2.metric("샤프 비율", f"{m['sharpe_ratio']:.2f}", border=True,
-              chart_data=bt.get("sharpe_spark"), chart_type="line")
+    c1.metric(
+        "누적 수익률",
+        f"{m['cumulative_return']:.1%}",
+        border=True,
+        chart_data=bt.get("wf_spark"),
+        chart_type="area",
+    )
+    c2.metric(
+        "샤프 비율",
+        f"{m['sharpe_ratio']:.2f}",
+        border=True,
+        chart_data=bt.get("sharpe_spark"),
+        chart_type="line",
+    )
     c3.metric("MDD", f"{m['mdd']:.1%}", border=True)
 
     col1, col2 = st.columns(2)
@@ -387,10 +558,18 @@ def rl_page() -> None:
         with st.container(border=True):
             _echarts_line(
                 x=list(range(1, len(bt["rewards"]) + 1)),
-                series=[{"name": "누적 보상", "type": "line", "smooth": True,
-                         "areaStyle": {"opacity": 0.12}, "data": bt["rewards"],
-                         "itemStyle": {"color": _PALETTE[1]}}],
-                title="학습 곡선 (에피소드 누적 보상)", key="rl_reward",
+                series=[
+                    {
+                        "name": "누적 보상",
+                        "type": "line",
+                        "smooth": True,
+                        "areaStyle": {"opacity": 0.12},
+                        "data": bt["rewards"],
+                        "itemStyle": {"color": _PALETTE[1]},
+                    }
+                ],
+                title="학습 곡선 (에피소드 누적 보상)",
+                key="rl_reward",
                 legend=False,
             )
     with col2:
@@ -398,37 +577,53 @@ def rl_page() -> None:
             # 비교 전략 필터 적용
             series_list = []
             if "PPO" in strategies:
-                series_list.append({
-                    "name": "PPO", "type": "line", "smooth": True,
-                    "areaStyle": {"opacity": 0.12}, "data": wf_cum,
-                    "itemStyle": {"color": _PALETTE[0]},
-                })
+                series_list.append(
+                    {
+                        "name": "PPO",
+                        "type": "line",
+                        "smooth": True,
+                        "areaStyle": {"opacity": 0.12},
+                        "data": wf_cum,
+                        "itemStyle": {"color": _PALETTE[0]},
+                    }
+                )
             if "MVO" in strategies:
-                series_list.append({
-                    "name": "MVO (mock)", "type": "line", "smooth": True,
-                    "data": (np.array(wf_cum) * 0.92).tolist(),
-                    "itemStyle": {"color": _PALETTE[2]},
-                })
+                series_list.append(
+                    {
+                        "name": "MVO (mock)",
+                        "type": "line",
+                        "smooth": True,
+                        "data": (np.array(wf_cum) * 0.92).tolist(),
+                        "itemStyle": {"color": _PALETTE[2]},
+                    }
+                )
             if "동일비중" in strategies:
-                series_list.append({
-                    "name": "동일비중 (mock)", "type": "line", "smooth": True,
-                    "lineStyle": {"type": "dashed"},
-                    "data": bm_cum,
-                    "itemStyle": {"color": _PALETTE[3]},
-                })
+                series_list.append(
+                    {
+                        "name": "동일비중 (mock)",
+                        "type": "line",
+                        "smooth": True,
+                        "lineStyle": {"type": "dashed"},
+                        "data": bm_cum,
+                        "itemStyle": {"color": _PALETTE[3]},
+                    }
+                )
             if not series_list:
                 st.info("비교 전략을 하나 이상 선택하세요.")
             else:
                 _echarts_line(
-                    x=dates, series=series_list,
-                    title=f"Walk-Forward 백테스트 ({period})", key="rl_wf",
+                    x=dates,
+                    series=series_list,
+                    title=f"Walk-Forward 백테스트 ({period})",
+                    key="rl_wf",
                 )
 
     with st.container(border=True):
         st.markdown("**성과 지표 전체**")
         st.dataframe(
             pd.DataFrame([{"지표": k, "값": f"{v:.4f}"} for k, v in m.items()]),
-            hide_index=True, use_container_width=True,
+            hide_index=True,
+            use_container_width=True,
         )
 
 
@@ -452,8 +647,15 @@ def shap_page() -> None:
     else:
         sd = _mock_explain(str(target_date))
 
-    feat, vals, base, pred = sd["feature_names"], sd["shap_values"], sd["base_value"], sd["prediction"]
-    st.markdown(f"분석 날짜: **{target_date}** | 기준값: **`{base:.4f}`** → 예측값: **`{pred:.4f}`**")
+    feat, vals, base, pred = (
+        sd["feature_names"],
+        sd["shap_values"],
+        sd["base_value"],
+        sd["prediction"],
+    )
+    st.markdown(
+        f"분석 날짜: **{target_date}** | 기준값: **`{base:.4f}`** → 예측값: **`{pred:.4f}`**"
+    )
 
     shap_df = pd.DataFrame({"피처": feat, "SHAP값": vals}).sort_values("SHAP값")
 
@@ -466,7 +668,8 @@ def shap_page() -> None:
             _echarts_bar_h(
                 names=summary["피처"].tolist(),
                 values=summary["절대값"].round(4).tolist(),
-                title="Summary Plot (|SHAP| 절대값)", key="shap_summary",
+                title="Summary Plot (|SHAP| 절대값)",
+                key="shap_summary",
             )
     with col2:
         with st.container(border=True):
@@ -475,7 +678,8 @@ def shap_page() -> None:
                 names=shap_df["피처"].tolist(),
                 values=shap_df["SHAP값"].round(4).tolist(),
                 colors=colors,
-                title="Force Plot (빨강=양, 파랑=음)", key="shap_force",
+                title="Force Plot (빨강=양, 파랑=음)",
+                key="shap_force",
             )
 
 
@@ -489,7 +693,8 @@ def research_page() -> None:
     )
 
     # Enter → 리서치 실행, Shift+Enter → 줄바꿈
-    st.components.v1.html("""
+    st.components.v1.html(
+        """
     <script>
     (function() {
         function attachHandler() {
@@ -521,46 +726,22 @@ def research_page() -> None:
         );
     })();
     </script>
-    """, height=0)
+    """,
+        height=0,
+    )
 
     if st.button("리서치 실행", key="btn_research"):
         if not question.strip():
             st.error("질문을 입력하세요.")
         else:
             with st.status("에이전트 리서치 진행 중…", expanded=True) as status:
-                st.write("LangGraph 파이프라인 실행 (planner → researcher → analyst)")
-                res = _post("/research", {"question": question}, timeout=_TIMEOUT_RESEARCH)
-                if res is None:
-                    res = _mock_research(question)
-                    status.update(label="API 미연결 — mock 응답", state="error", expanded=False)
-                else:
-                    status.update(label="리서치 완료", state="complete", expanded=False)
+                st.write("LangGraph 이벤트 스트림 실행")
+                stream_text = st.write_stream(_stream_research(question))
+                status.update(label="리서치 스트림 종료", state="complete", expanded=False)
 
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                with st.container(border=True):
-                    st.markdown("**분석 리포트**")
-                    report_text = re.sub(
-                        r'\(출처: ([^)\n]+)$', r'(출처: \1)', res["report"], flags=re.MULTILINE
-                    )
-                    st.markdown(report_text)
-            with col2:
-                with st.container(border=True):
-                    st.markdown("**출처 URL**")
-                    for url in res.get("sources", []):
-                        domain = urlparse(url).netloc or url
-                        st.markdown(f"- [{domain}]({url})")
-                with st.container(border=True):
-                    st.markdown("**리스크 태그**")
-                    tags = res.get("risk_tags", [])
-                    if tags:
-                        for t in tags:
-                            st.warning(f"⚠️ {t}")
-                    else:
-                        st.success("감지된 리스크 없음")
-
-            with st.expander("추론 트레이스 (reasoning_trace)"):
-                st.code(res.get("reasoning_trace", ""), language="text")
+            with st.container(border=True):
+                st.markdown("**실시간 추론 로그**")
+                st.code(stream_text, language="text")
     else:
         st.info("위에서 질문을 입력하고 '리서치 실행' 버튼을 누르세요.")
 
@@ -570,7 +751,9 @@ def anova_page() -> None:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
         strategies: list[str] = st.multiselect(
-            "비교 전략", ["PPO", "MVO", "동일비중"], default=["PPO"],
+            "비교 전략",
+            ["PPO", "MVO", "동일비중"],
+            default=["PPO"],
             help="사후 검정 결과 필터",
         )
 
@@ -582,8 +765,8 @@ def anova_page() -> None:
 
     _EXP_LABELS = {
         "reward_function_comparison": "검증 1 — 보상함수 비교",
-        "strategy_comparison":        "검증 2 — 전략 비교",
-        "market_regime_comparison":   "검증 3 — 국면 × 전략 (Two-way)",
+        "strategy_comparison": "검증 2 — 전략 비교",
+        "market_regime_comparison": "검증 3 — 국면 × 전략 (Two-way)",
     }
     tab_labels = [_EXP_LABELS.get(a.get("name", ""), a.get("name", "")) for a in anova_list]
     tabs = st.tabs(tab_labels) if tab_labels else []
@@ -604,20 +787,31 @@ def anova_page() -> None:
             interaction = anova.get("interaction")
             if interaction:
                 sig = interaction.get("significant", False)
-                label = "✅ 교호작용 유의 (전략 효과가 국면에 따라 다름)" if sig else "교호작용 비유의"
-                st.info(f"**교호작용** — F={interaction.get('f_statistic', 0):.2f}, "
-                        f"p={interaction.get('p_value', 1):.4f}  |  {label}")
+                label = (
+                    "✅ 교호작용 유의 (전략 효과가 국면에 따라 다름)" if sig else "교호작용 비유의"
+                )
+                st.info(
+                    f"**교호작용** — F={interaction.get('f_statistic', 0):.2f}, "
+                    f"p={interaction.get('p_value', 1):.4f}  |  {label}"
+                )
                 strat = anova.get("strategy_effect", {})
-                st.caption(f"전략 주효과 — F={strat.get('f_statistic', 0):.2f}, "
-                           f"p={strat.get('p_value', 1):.4f}")
+                st.caption(
+                    f"전략 주효과 — F={strat.get('f_statistic', 0):.2f}, "
+                    f"p={strat.get('p_value', 1):.4f}"
+                )
 
             with st.container(border=True):
                 st.markdown("**사후 검정 결과 (Tukey HSD)**")
                 posthoc_all = anova.get("post_hoc", [])
-                posthoc = [
-                    row for row in posthoc_all
-                    if row["group1"] in strategies or row["group2"] in strategies
-                ] if strategies else posthoc_all
+                posthoc = (
+                    [
+                        row
+                        for row in posthoc_all
+                        if row["group1"] in strategies or row["group2"] in strategies
+                    ]
+                    if strategies
+                    else posthoc_all
+                )
 
                 if posthoc:
                     ph = pd.DataFrame(posthoc)
@@ -627,17 +821,22 @@ def anova_page() -> None:
                         ph[["group1", "group2", "p_adj", "유의여부"]].rename(
                             columns={"group1": "집단 A", "group2": "집단 B", "p_adj": "p-adj"}
                         ),
-                        hide_index=True, use_container_width=True,
+                        hide_index=True,
+                        use_container_width=True,
                     )
                 else:
-                    st.info("사후 검정 결과 없음 (p ≥ 0.05 또는 왼쪽 사이드바에서 전략을 선택하세요).")
+                    st.info(
+                        "사후 검정 결과 없음 (p ≥ 0.05 또는 왼쪽 사이드바에서 전략을 선택하세요)."
+                    )
 
 
 def risk_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
-        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="risk_period")
+        period: str = st.selectbox(
+            "분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="risk_period"
+        )
 
     st.title("리스크 모니터링")
     with st.spinner("GET /backtest 호출 중…"):
@@ -668,13 +867,17 @@ def risk_page() -> None:
     with st.container(border=True):
         _echarts_line(
             x=dates,
-            series=[{
-                "name": "낙폭", "type": "line", "smooth": True,
-                "areaStyle": {"opacity": 0.3, "color": "#ee6666"},
-                "lineStyle": {"color": "#ee6666"},
-                "itemStyle": {"color": "#ee6666"},
-                "data": drawdown,
-            }],
+            series=[
+                {
+                    "name": "낙폭",
+                    "type": "line",
+                    "smooth": True,
+                    "areaStyle": {"opacity": 0.3, "color": "#ee6666"},
+                    "lineStyle": {"color": "#ee6666"},
+                    "itemStyle": {"color": "#ee6666"},
+                    "data": drawdown,
+                }
+            ],
             title=f"MDD 추이 ({period})",
             y_formatter=JsCode("function(v){return (v*100).toFixed(1)+'%'}"),
             key="r_drawdown",
@@ -684,15 +887,18 @@ def risk_page() -> None:
         st.markdown("**리스크 지표 요약**")
         m6 = bt6["metrics"]
         st.dataframe(
-            pd.DataFrame([
-                {"지표": "VaR 95%",       "값": f"{bt6['var_95']:.2%}"},
-                {"지표": "CVaR 95%",      "값": f"{bt6['cvar_95']:.2%}"},
-                {"지표": "MDD",           "값": f"{bt6['mdd']:.2%}"},
-                {"지표": "연환산 변동성", "값": f"{m6['annualized_volatility']:.2%}"},
-                {"지표": "베타",          "값": f"{m6['beta']:.2f}"},
-                {"지표": "샤프 비율",     "값": f"{m6['sharpe_ratio']:.2f}"},
-            ]),
-            hide_index=True, use_container_width=True,
+            pd.DataFrame(
+                [
+                    {"지표": "VaR 95%", "값": f"{bt6['var_95']:.2%}"},
+                    {"지표": "CVaR 95%", "값": f"{bt6['cvar_95']:.2%}"},
+                    {"지표": "MDD", "값": f"{bt6['mdd']:.2%}"},
+                    {"지표": "연환산 변동성", "값": f"{m6['annualized_volatility']:.2%}"},
+                    {"지표": "베타", "값": f"{m6['beta']:.2f}"},
+                    {"지표": "샤프 비율", "값": f"{m6['sharpe_ratio']:.2f}"},
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
         )
 
 
@@ -702,7 +908,8 @@ def risk_page() -> None:
 
 st.set_page_config(page_title="AI Robo Advisor", layout="wide", page_icon="📈")
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 /* 기본 running 인디케이터(운동하는 사람) 숨기고 🌀 이모지로 교체
    버전 의존 CSS 패치 — streamlit 버전 고정 필요 (requirements.txt 참고) */
@@ -720,17 +927,21 @@ st.markdown("""
     animation: spin 1s linear infinite;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # 네비게이션 (템플릿과 동일한 st.navigation + st.Page 방식)
-pg = st.navigation([
-    st.Page(portfolio_page, title="포트폴리오 현황", icon=":material/pie_chart:",   default=True),
-    st.Page(rl_page,        title="강화학습 성과",   icon=":material/psychology:"),
-    st.Page(shap_page,      title="SHAP 해석",       icon=":material/auto_graph:"),
-    st.Page(research_page,  title="에이전트 리서치", icon=":material/article:"),
-    st.Page(anova_page,     title="ANOVA 검증",      icon=":material/science:"),
-    st.Page(risk_page,      title="리스크 모니터링", icon=":material/shield:"),
-])
+pg = st.navigation(
+    [
+        st.Page(portfolio_page, title="포트폴리오 현황", icon=":material/pie_chart:", default=True),
+        st.Page(rl_page, title="강화학습 성과", icon=":material/psychology:"),
+        st.Page(shap_page, title="SHAP 해석", icon=":material/auto_graph:"),
+        st.Page(research_page, title="에이전트 리서치", icon=":material/article:"),
+        st.Page(anova_page, title="ANOVA 검증", icon=":material/science:"),
+        st.Page(risk_page, title="리스크 모니터링", icon=":material/shield:"),
+    ]
+)
 
 with st.sidebar:
     st.divider()
