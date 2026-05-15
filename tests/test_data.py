@@ -19,6 +19,7 @@ from src.data.indicators import compute_indicators
 # 경로 상수
 # ---------------------------------------------------------------------------
 RETURNS_PATH = Path("data/processed/returns.parquet")
+RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
 PRICES_PATH = Path("data/raw/prices.parquet")
 
@@ -45,6 +46,12 @@ def features_df() -> pd.DataFrame:
 
 
 @pytest.fixture(scope="session")
+def raw_features_df() -> pd.DataFrame:
+    """raw_features.parquet을 세션 단위로 한 번만 로드한다."""
+    return pd.read_parquet(RAW_FEATURES_PATH)
+
+
+@pytest.fixture(scope="session")
 def raw_indicators(returns_df: pd.DataFrame) -> pd.DataFrame:
     """정규화 전 raw 지표 DataFrame (RSI 범위 검증에 사용).
 
@@ -58,10 +65,12 @@ def raw_indicators(returns_df: pd.DataFrame) -> pd.DataFrame:
 # 테스트
 # ---------------------------------------------------------------------------
 def test_parquet_loadable() -> None:
-    """parquet 파일 두 개 모두 정상 로드되어야 한다."""
+    """핵심 parquet 파일이 모두 정상 로드되어야 한다."""
     df_r = pd.read_parquet(RETURNS_PATH)
+    df_raw_f = pd.read_parquet(RAW_FEATURES_PATH)
     df_f = pd.read_parquet(FEATURES_PATH)
     assert not df_r.empty, "returns.parquet이 비어 있음"
+    assert not df_raw_f.empty, "raw_features.parquet이 비어 있음"
     assert not df_f.empty, "features.parquet이 비어 있음"
 
 
@@ -136,6 +145,30 @@ def test_features_shape(returns_df: pd.DataFrame, features_df: pd.DataFrame) -> 
         f"features({len(features_df)}행) >= returns({len(returns_df)}행): "
         "MACD 초기 NaN dropna가 적용되지 않았을 수 있음"
     )
+
+
+def test_raw_features_shape(
+    returns_df: pd.DataFrame,
+    raw_features_df: pd.DataFrame,
+) -> None:
+    """raw_features 행 수가 returns보다 적어야 한다."""
+    assert len(raw_features_df) < len(returns_df), (
+        f"raw_features({len(raw_features_df)}행) >= returns({len(returns_df)}행): "
+        "MACD 초기 NaN dropna가 적용되지 않았을 수 있음"
+    )
+
+
+def test_raw_features_are_not_zscore_normalized(
+    raw_features_df: pd.DataFrame,
+) -> None:
+    """raw_features.parquet은 전체 기간 Z-score가 적용되지 않은 피처여야 한다."""
+    rsi_cols = [c for c in raw_features_df.columns if c.endswith("_RSI")]
+    assert rsi_cols, "RSI 컬럼 없음"
+
+    rsi = raw_features_df[rsi_cols]
+    assert float(rsi.max().max()) > 10.0, "RSI가 raw 0~100 스케일이 아님"
+    assert float(rsi.min().min()) >= 0.0, "RSI 0 미만 값 존재"
+    assert float(rsi.max().max()) <= 100.0, "RSI 100 초과 값 존재"
 
 
 def test_rsi_range(raw_indicators: pd.DataFrame) -> None:
