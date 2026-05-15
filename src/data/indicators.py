@@ -1,11 +1,11 @@
 """기술적 지표 계산 모듈.
 
 로그수익률 DataFrame을 입력받아 RSI·MACD를 계산하고
-Z-score 정규화된 features.parquet을 생성한다.
+정규화 전 raw_features.parquet을 생성한다.
 
 Downstream:
-    data/processed/features.parquet → src/rl/env.py (이문정)
-                                    → src/rl/backtest.py (강유영)
+    data/processed/raw_features.parquet → Walk-Forward 정규화 파이프라인
+    data/processed/features.parquet     → legacy/EDA 호환용 전체 기간 Z-score
 
 컬럼명 규칙 변경 시 이문정·강유영에게 반드시 사전 공지.
 """
@@ -70,27 +70,26 @@ def compute_indicators(returns: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def build_features(returns: pd.DataFrame) -> pd.DataFrame:
-    """로그수익률과 기술적 지표를 결합하여 Z-score 정규화된 features를 반환한다.
+def build_raw_features(returns: pd.DataFrame) -> pd.DataFrame:
+    """로그수익률과 기술적 지표를 결합하여 정규화 전 features를 반환한다.
 
     처리 순서:
         1. compute_indicators(returns)로 RSI·MACD 계산
         2. returns 컬럼을 {ticker}_return으로 rename
         3. returns + indicators concat
-        4. 전체 기간 Z-score 정규화
-        5. dropna (MACD 초기 ~33행 NaN 제거)
+        4. dropna (MACD 초기 ~33행 NaN 제거)
 
     Args:
         returns: raw 로그수익률 DataFrame (index=Date, columns=티커명).
 
     Returns:
-        Z-score 정규화된 features DataFrame.
+        정규화 전 raw features DataFrame.
             columns: {ticker}_return, {ticker}_RSI, {ticker}_MACD, {ticker}_MACD_signal × 자산 수
             shape: returns보다 약 33행 적음 (정상).
 
     Note:
-        look-ahead bias 방지는 trading_env.py의 Walk-Forward 분리에서 처리한다.
-        여기서는 전체 기간 기준 정규화가 이문정과 합의된 방식이다.
+        Look-ahead bias 방지를 위해 Z-score 파라미터는 이 함수에서 계산하지 않는다.
+        train_walkforward.py/backtest.py가 각 Walk-Forward 학습 구간 통계로 정규화해야 한다.
     """
     indicators = compute_indicators(returns)
 
@@ -99,11 +98,10 @@ def build_features(returns: pd.DataFrame) -> pd.DataFrame:
     )
 
     combined = pd.concat([returns_renamed, indicators], axis=1)
-    normalized = (combined - combined.mean()) / combined.std()
-    features = normalized.dropna()
+    features = combined.dropna()
 
     logger.info(
-        "features 구성 완료: shape=%s (returns %d행 대비 %d행 적음)",
+        "raw_features 구성 완료: shape=%s (returns %d행 대비 %d행 적음)",
         features.shape,
         len(returns),
         len(returns) - len(features),
@@ -111,8 +109,18 @@ def build_features(returns: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
+def build_features(returns: pd.DataFrame) -> pd.DataFrame:
+    """전체 기간 Z-score 정규화 features를 반환한다.
+
+    이 함수는 기존 downstream 호환과 EDA 확인용으로 유지한다. Walk-Forward
+    학습/백테스트에는 전체 기간 통계가 들어간 이 결과를 직접 사용하지 않는다.
+    """
+    raw_features = build_raw_features(returns)
+    return (raw_features - raw_features.mean()) / raw_features.std()
+
+
 def main() -> None:
-    """returns.parquet을 읽어 features.parquet을 생성한다.
+    """returns.parquet을 읽어 raw_features.parquet과 features.parquet을 생성한다.
 
     단독 실행 시 사용: python -m src.data.indicators
     collector.py 실행 후 returns.parquet이 존재해야 한다.
@@ -120,6 +128,7 @@ def main() -> None:
     from config import DATA_PROCESSED_DIR  # 순환 임포트 방지를 위해 지역 import
 
     returns_path = Path(DATA_PROCESSED_DIR) / "returns.parquet"
+    raw_features_path = Path(DATA_PROCESSED_DIR) / "raw_features.parquet"
     features_path = Path(DATA_PROCESSED_DIR) / "features.parquet"
 
     if not returns_path.exists():
@@ -132,10 +141,13 @@ def main() -> None:
     returns = pd.read_parquet(returns_path)
     logger.info("로드 완료: shape=%s", returns.shape)
 
-    features = build_features(returns)
+    raw_features = build_raw_features(returns)
+    features = (raw_features - raw_features.mean()) / raw_features.std()
 
-    features_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_features_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_features.to_parquet(raw_features_path)
     features.to_parquet(features_path)
+    logger.info("raw_features.parquet 저장 완료: %s  shape=%s", raw_features_path, raw_features.shape)
     logger.info("features.parquet 저장 완료: %s  shape=%s", features_path, features.shape)
 
 

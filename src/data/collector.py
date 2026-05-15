@@ -1,11 +1,13 @@
 """데이터 수집 및 전처리 파이프라인.
 
 해외 ETF(yfinance)와 국내 ETF(pykrx)를 수집·병합하여
-returns.parquet(raw 로그수익률)과 features.parquet(Z-score 정규화)를 저장한다.
+returns.parquet(raw 로그수익률), raw_features.parquet(정규화 전 피처),
+features.parquet(legacy 전체 기간 Z-score)을 저장한다.
 
 Downstream:
-    data/processed/returns.parquet  → src/rl/env.py (이문정)
-    data/processed/features.parquet → src/rl/env.py, src/rl/backtest.py (이문정·강유영)
+    data/processed/returns.parquet      → 실제 포트폴리오 수익률 계산
+    data/processed/raw_features.parquet → Walk-Forward 정규화 입력
+    data/processed/features.parquet     → legacy/EDA 호환용
 """
 
 import logging
@@ -26,7 +28,7 @@ from config import (
     TICKERS_GLOBAL,
     TICKERS_KR,
 )
-from src.data.indicators import build_features as _build_features
+from src.data.indicators import build_raw_features as _build_raw_features
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -230,44 +232,53 @@ def save_raw_returns(returns: pd.DataFrame, path: str | Path) -> None:
 def normalize_zscore(df: pd.DataFrame) -> pd.DataFrame:
     """전체 기간 기준 Z-score 정규화를 적용한다.
 
+    이 함수는 legacy features.parquet 생성용이다. Walk-Forward 학습/백테스트는
+    학습 구간 통계만 사용해 별도 정규화해야 한다.
+
     Args:
         df: 정규화할 DataFrame.
 
     Returns:
         Z-score 정규화된 DataFrame. ((x - mean) / std)
 
-    Note:
-        Look-ahead bias 방지는 trading_env.py의 Walk-Forward 분리에서 처리한다.
-        collector 단계에서는 전체 기간 기준 정규화가 합의된 방식이다. (이문정 합의사항)
     """
     return (df - df.mean()) / df.std()
 
 
-def build_features(returns_raw: pd.DataFrame) -> pd.DataFrame:
-    """로그수익률을 indicators.build_features에 위임하여 features DataFrame을 만든다.
+def build_raw_features(returns_raw: pd.DataFrame) -> pd.DataFrame:
+    """로그수익률을 indicators.build_raw_features에 위임하여 raw features를 만든다.
 
     Args:
         returns_raw: raw 로그수익률 DataFrame (index=Date, columns=티커명).
 
     Returns:
-        Z-score 정규화된 features DataFrame.
+        정규화 전 raw features DataFrame.
         columns: {ticker}_return, {ticker}_RSI, {ticker}_MACD, {ticker}_MACD_signal × 10자산
         shape: returns_raw보다 약 33행 적음 (정상).
     """
-    return _build_features(returns_raw)
+    return _build_raw_features(returns_raw)
 
 
-def save_features(features: pd.DataFrame, path: str | Path) -> None:
-    """Z-score 정규화된 features를 parquet으로 저장한다.
+def build_features(returns_raw: pd.DataFrame) -> pd.DataFrame:
+    """legacy 전체 기간 Z-score features DataFrame을 만든다.
+
+    Walk-Forward 학습/백테스트에는 이 결과를 직접 사용하지 않는다.
+    """
+    return normalize_zscore(build_raw_features(returns_raw))
+
+
+def save_features(features: pd.DataFrame, path: str | Path, label: str = "features") -> None:
+    """features DataFrame을 parquet으로 저장한다.
 
     Args:
         features: features DataFrame.
         path: 저장 경로 (디렉토리가 없으면 자동 생성).
+        label: 로그에 표시할 산출물 이름.
     """
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(dest)
-    logger.info("features.parquet 저장 완료: %s  shape=%s", dest, features.shape)
+    logger.info("%s 저장 완료: %s  shape=%s", label, dest, features.shape)
 
 
 def main() -> None:
@@ -277,10 +288,12 @@ def main() -> None:
         yfinance 수집 → pykrx 수집 → 병합 → ffill/dropna
         → prices.parquet(원본 가격) 저장
         → 로그수익률 → returns.parquet(raw) 저장
-        → features 구성(지표 포함) → Z-score 정규화 → features.parquet 저장
+        → raw_features 구성(지표 포함) → raw_features.parquet 저장
+        → legacy 전체 기간 Z-score → features.parquet 저장
     """
     prices_path = Path(DATA_RAW_DIR) / "prices.parquet"
     returns_path = Path(DATA_PROCESSED_DIR) / "returns.parquet"
+    raw_features_path = Path(DATA_PROCESSED_DIR) / "raw_features.parquet"
     features_path = Path(DATA_PROCESSED_DIR) / "features.parquet"
 
     # 1–3. 수집 및 병합
@@ -295,14 +308,19 @@ def main() -> None:
     returns = compute_log_returns(prices)
     save_raw_returns(returns, returns_path)
 
-    # 6–7. features 구성(지표 포함 + Z-score) 및 저장
-    features = build_features(returns)
-    save_features(features, features_path)
+    # 6. raw features 구성(지표 포함, 정규화 전) 및 저장
+    raw_features = build_raw_features(returns)
+    save_features(raw_features, raw_features_path, label="raw_features.parquet")
+
+    # 7. legacy/EDA 호환용 전체 기간 Z-score features 저장
+    features = normalize_zscore(raw_features)
+    save_features(features, features_path, label="features.parquet")
 
     logger.info("파이프라인 완료.")
-    logger.info("  prices  : %s  shape=%s", prices_path, prices.shape)
-    logger.info("  returns : %s  shape=%s", returns_path, returns.shape)
-    logger.info("  features: %s  shape=%s", features_path, features.shape)
+    logger.info("  prices      : %s  shape=%s", prices_path, prices.shape)
+    logger.info("  returns     : %s  shape=%s", returns_path, returns.shape)
+    logger.info("  raw_features: %s  shape=%s", raw_features_path, raw_features.shape)
+    logger.info("  features    : %s  shape=%s", features_path, features.shape)
 
 
 if __name__ == "__main__":
