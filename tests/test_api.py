@@ -244,6 +244,7 @@ def test_research_uses_fast_local_rag_when_documents_exist(monkeypatch) -> None:
 
     api_services._build_fast_research_response.cache_clear()
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "_build_seed_research_response", lambda question: None)
     monkeypatch.setattr(vectorstore, "query_documents", fake_query_documents)
     monkeypatch.setattr(api_services, "run_graph", fail_graph)
 
