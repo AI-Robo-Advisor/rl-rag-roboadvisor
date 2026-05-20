@@ -753,16 +753,6 @@ def _has_local_research_corpus() -> bool:
     return _rag_has_documents()
 
 
-def _ensure_rag_seed_documents() -> int:
-    """Populate deterministic local RAG documents when Chroma is empty."""
-    try:
-        from src.agent.seed_documents import ensure_seed_documents
-
-        return ensure_seed_documents(settings.CHROMA_PERSIST_DIR)
-    except Exception:
-        return 0
-
-
 def _risk_adjusted_raw_weights(
     tickers: list[str],
     risk_profile: RiskProfile,
