@@ -31,6 +31,7 @@ class OptimizeRequest(BaseModel):
     tickers: list[str] | None = Field(default=None, min_length=1)
     risk_profile: RiskProfile = "balanced"
     risk_aversion: float | None = Field(default=None, gt=0)
+    risk_tags: list[str] | None = None
 
 
 class ReturnSeries(BaseModel):

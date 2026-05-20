@@ -98,6 +98,7 @@ def build_fallback_portfolio(
     tickers: list[str] | None = None,
     risk_profile: RiskProfile = "balanced",
     risk_aversion: float | None = None,
+    risk_tags: list[str] | None = None,
     *,
     elapsed_ms: float = 0.0,
     timed_out: bool = False,
@@ -119,7 +120,12 @@ def build_fallback_portfolio(
         expected_return=expected_return or _profile_return(risk_profile),
         expected_volatility=expected_volatility or _profile_volatility(risk_profile),
         returns=return_series,
-        message="PPO 모델 연결 전 deterministic fallback 포트폴리오입니다.",
+        message=(
+            "PPO 모델 연결 전 deterministic fallback 포트폴리오입니다. "
+            "리스크 태그는 PPO ready 경로에서 관측 벡터로 반영됩니다."
+            if risk_tags
+            else "PPO 모델 연결 전 deterministic fallback 포트폴리오입니다."
+        ),
     )
 
 
@@ -127,17 +133,19 @@ def build_portfolio_response(
     tickers: list[str] | None = None,
     risk_profile: RiskProfile = "balanced",
     risk_aversion: float | None = None,
+    risk_tags: list[str] | None = None,
 ) -> OptimizeResponse:
     """Return PPO portfolio weights when available, otherwise fallback weights."""
     start = perf_counter()
     selected_tickers = tickers or DEFAULT_TICKERS
     try:
-        weights = _predict_ppo_weights_with_timeout(selected_tickers)
+        weights = _predict_ppo_weights_with_timeout(selected_tickers, risk_tags or [])
     except Exception as exc:
         return build_fallback_portfolio(
             selected_tickers,
             risk_profile,
             risk_aversion,
+            risk_tags,
             elapsed_ms=_elapsed_ms(start),
             timed_out=isinstance(exc, TimeoutError),
         )
@@ -147,6 +155,7 @@ def build_portfolio_response(
             selected_tickers,
             risk_profile,
             risk_aversion,
+            risk_tags,
             elapsed_ms=_elapsed_ms(start),
         )
 
@@ -156,6 +165,7 @@ def build_portfolio_response(
             selected_tickers,
             risk_profile,
             risk_aversion,
+            risk_tags,
             elapsed_ms=_elapsed_ms(start),
         )
 
@@ -278,8 +288,12 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         )
         return
 
+    final_state: dict[str, Any] | None = None
     try:
         async for event in stream_graph_events(question):
+            event_state = _state_from_graph_event(event)
+            if event_state:
+                final_state = {**(final_state or {}), **event_state}
             compact = _compact_graph_event(event)
             if compact:
                 yield _to_ndjson(compact)
@@ -297,7 +311,31 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         )
         return
 
-    yield _to_ndjson({"type": "complete", "question": question})
+    response = _research_response_from_state(question, final_state or {})
+    yield _to_ndjson(
+        {
+            "type": "complete",
+            "question": response.question,
+            "report": response.report,
+            "sources": response.sources,
+            "reasoning_trace": response.reasoning_trace,
+            "risk_tags": response.risk_tags,
+        }
+    )
+
+
+def _state_from_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract final LangGraph state-like output from a stream event."""
+    data = event.get("data") or {}
+    if not isinstance(data, dict):
+        return None
+    output = data.get("output")
+    if not isinstance(output, dict):
+        return None
+    useful_keys = {"response", "sources", "reasoning_trace", "risk_tags", "rl_risk_tags"}
+    if not any(key in output for key in useful_keys):
+        return None
+    return {str(key): value for key, value in output.items() if key in useful_keys}
 
 
 def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -340,14 +378,6 @@ def build_research_response(question: str) -> ResearchResponse:
     if not settings.OPENAI_API_KEY:
         return build_fallback_research(question, elapsed_ms=_elapsed_ms(start))
 
-    fast_response = _build_fast_research_response(question)
-    if fast_response:
-        fast_response.elapsed_ms = _elapsed_ms(start)
-        return fast_response
-
-    if not _rag_has_documents():
-        return build_fallback_research(question, elapsed_ms=_elapsed_ms(start))
-
     try:
         state = _run_graph_with_timeout(question)
     except Exception as exc:
@@ -360,123 +390,6 @@ def build_research_response(question: str) -> ResearchResponse:
     response = _research_response_from_state(question, state)
     response.elapsed_ms = _elapsed_ms(start)
     return response
-
-
-@lru_cache(maxsize=64)
-def _build_fast_research_response(question: str) -> ResearchResponse | None:
-    """Build a bounded extractive RAG report from local Chroma documents."""
-    seed_response = _build_seed_research_response(question)
-    if seed_response:
-        return seed_response
-
-    try:
-        from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
-        from src.agent.vectorstore import query_documents
-
-        results = query_documents(
-            query_texts=[question],
-            n_results=3,
-            persist_dir=settings.CHROMA_PERSIST_DIR,
-        )
-    except Exception:
-        return None
-
-    documents = results.get("documents") or []
-    first_docs = documents[0] if documents and documents[0] else []
-    if not first_docs:
-        return None
-
-    metadatas = results.get("metadatas") or []
-    first_metas = metadatas[0] if metadatas and metadatas[0] else []
-    snippets: list[str] = []
-    sources: list[str] = []
-    for index, content in enumerate(first_docs[:3], start=1):
-        text = str(content).strip()
-        if not text:
-            continue
-        meta = first_metas[index - 1] if index - 1 < len(first_metas) else {}
-        title = str(meta.get("title") or f"문서 {index}")
-        url = str(meta.get("url") or meta.get("source") or "")
-        snippets.append(f"{index}. {title}: {text[:350]}")
-        if url:
-            sources.append(url)
-
-    if not snippets:
-        return None
-
-    combined_text = " ".join([question, *snippets])
-    risk_tags = extract_rl_risk_tags(combined_text) or extract_risk_tags(combined_text)
-    report = (
-        "로컬 RAG 검색 결과 기준 투자 리서치 요약입니다.\n\n"
-        + "\n".join(snippets)
-        + "\n\n"
-        + "위 근거를 바탕으로 포트폴리오 관점에서는 관련 자산의 변동성, 금리 민감도, "
-        + "분산 효과 변화를 함께 점검해야 합니다."
-    )
-    reasoning_trace = "\n".join(
-        [
-            "[THINK][planner] 질문에서 핵심 자산과 리스크 키워드를 추출했습니다.",
-            f"[THINK][researcher] Chroma top-k={len(snippets)}건을 조회했습니다.",
-            "[THINK][analyst] 검색 문서 기반으로 요약 리포트와 리스크 태그를 생성했습니다.",
-        ]
-    )
-    return ResearchResponse(
-        status="ready",
-        question=question,
-        report=report,
-        sources=sources or ["local-chroma://finance_news"],
-        reasoning_trace=reasoning_trace,
-        risk_tags=[str(tag) for tag in (risk_tags or _infer_risk_tags(question))],
-    )
-
-
-def _build_seed_research_response(question: str) -> ResearchResponse | None:
-    """Build a fast report from bundled asset seed documents for known ETF questions."""
-    try:
-        from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
-        from src.agent.seed_documents import SEED_DOCUMENTS
-    except Exception:
-        return None
-
-    query = question.upper()
-    selected: list[dict[str, str]] = []
-    for item in SEED_DOCUMENTS:
-        haystack = f"{item['title']} {item['summary']}".upper()
-        if any(token in query and token in haystack for token in DEFAULT_TICKERS):
-            selected.append(item)
-    if not selected and any(token in query for token in ("ETF", "금리", "RISK")):
-        selected = SEED_DOCUMENTS[:3]
-    if not selected:
-        return None
-
-    snippets = [
-        f"{index}. {item['title']}: {item['summary'][:350]}"
-        for index, item in enumerate(selected[:3], start=1)
-    ]
-    combined_text = " ".join([question, *snippets])
-    risk_tags = extract_rl_risk_tags(combined_text) or extract_risk_tags(combined_text)
-    report = (
-        "로컬 자산 문서 기준 투자 리서치 요약입니다.\n\n"
-        + "\n".join(snippets)
-        + "\n\n"
-        + "위 근거를 바탕으로 포트폴리오 관점에서는 주식 성장 노출, 채권 듀레이션, "
-        + "실물자산 방어력, 한국/글로벌 분산 효과를 함께 점검해야 합니다."
-    )
-    reasoning_trace = "\n".join(
-        [
-            "[THINK][planner] 질문에서 자산 티커와 금리/경기 리스크 키워드를 추출했습니다.",
-            f"[THINK][researcher] 로컬 seed RAG 문서 {len(snippets)}건을 선택했습니다.",
-            "[THINK][analyst] 선택 문서 기반으로 요약 리포트와 리스크 태그를 생성했습니다.",
-        ]
-    )
-    return ResearchResponse(
-        status="ready",
-        question=question,
-        report=report,
-        sources=[item["url"] for item in selected[:3]],
-        reasoning_trace=reasoning_trace,
-        risk_tags=[str(tag) for tag in (risk_tags or _infer_risk_tags(question))],
-    )
 
 
 def _run_graph_with_timeout(question: str) -> dict[str, Any]:
@@ -497,7 +410,8 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
 
     messages = state.get("messages") or []
     reasoning_trace = state.get("reasoning_trace") or "\n".join(str(item) for item in messages)
-    risk_tags = state.get("rl_risk_tags") or state.get("risk_tags") or _infer_risk_tags(question)
+    raw_risk_tags = state.get("rl_risk_tags") or state.get("risk_tags") or []
+    risk_tags = _normalize_rl_risk_tags(raw_risk_tags) or _infer_risk_tags(question)
     sources = [str(source) for source in state.get("sources", []) if source]
 
     return ResearchResponse(
@@ -506,7 +420,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         report=report,
         sources=sources or ["https://github.com/AI-Robo-Advisor/rl-rag-roboadvisor"],
         reasoning_trace=reasoning_trace,
-        risk_tags=[str(tag) for tag in risk_tags],
+        risk_tags=risk_tags,
     )
 
 
@@ -595,7 +509,10 @@ def build_module_statuses() -> dict[str, str]:
     }
 
 
-def _predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
+def _predict_ppo_weights(
+    tickers: list[str],
+    risk_tags: list[str] | None = None,
+) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
     returns = _load_returns()
     features = _load_features()
@@ -603,6 +520,7 @@ def _predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
 
+    from src.agent.risk_tags import get_risk_vector
     from src.rl.env import PortfolioEnv
 
     model = _load_ppo_model()
@@ -611,6 +529,7 @@ def _predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
         features_df=features,
         lookback=30,
         reward_type="sharpe",
+        risk_vector=get_risk_vector(risk_tags or []),
     )
     obs, _ = env.reset()
     env.current_step = len(env.features_df) - 1
@@ -621,9 +540,12 @@ def _predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
     return {ticker: by_asset[ticker] for ticker in tickers}
 
 
-def _predict_ppo_weights_with_timeout(tickers: list[str]) -> dict[str, float]:
+def _predict_ppo_weights_with_timeout(
+    tickers: list[str],
+    risk_tags: list[str] | None = None,
+) -> dict[str, float]:
     """Run PPO inference with a request-time budget."""
-    future = _PPO_EXECUTOR.submit(_predict_ppo_weights, tickers)
+    future = _PPO_EXECUTOR.submit(_predict_ppo_weights, tickers, risk_tags or [])
     try:
         return future.result(timeout=PPO_TIMEOUT_SECONDS)
     except TimeoutError:
@@ -828,17 +750,7 @@ def _rag_has_documents() -> bool:
 
 def _has_local_research_corpus() -> bool:
     """Return whether /research has local documents available for ready responses."""
-    return _rag_has_documents() or _has_seed_documents()
-
-
-def _has_seed_documents() -> bool:
-    """Return whether bundled deterministic research seed documents are available."""
-    try:
-        from src.agent.seed_documents import SEED_DOCUMENTS
-
-        return bool(SEED_DOCUMENTS)
-    except Exception:
-        return False
+    return _rag_has_documents()
 
 
 def _ensure_rag_seed_documents() -> int:
@@ -846,7 +758,6 @@ def _ensure_rag_seed_documents() -> int:
     try:
         from src.agent.seed_documents import ensure_seed_documents
 
-        _build_fast_research_response.cache_clear()
         return ensure_seed_documents(settings.CHROMA_PERSIST_DIR)
     except Exception:
         return 0
@@ -1219,6 +1130,17 @@ def _infer_risk_tags(question: str) -> list[str]:
     ):
         tags.append("급등락")
     return tags or ["급등락"]
+
+
+def _normalize_rl_risk_tags(tags: Any) -> list[str]:
+    """Keep only tags that belong to the fixed RL observation vector."""
+    try:
+        from src.agent.risk_tags import RL_RISK_TAGS
+    except Exception:
+        RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
+
+    allowed = set(RL_RISK_TAGS)
+    return [str(tag) for tag in tags or [] if str(tag) in allowed]
 
 
 def _to_ndjson(payload: dict[str, Any]) -> str:

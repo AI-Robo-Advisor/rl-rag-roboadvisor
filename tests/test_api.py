@@ -5,6 +5,7 @@ import time
 import json
 from concurrent.futures import TimeoutError
 
+import pandas as pd
 from fastapi.testclient import TestClient
 
 import apps.api.services as api_services
@@ -69,20 +70,76 @@ def test_optimize_accepts_dashboard_risk_aversion_and_returns_series() -> None:
 def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
     """POST /optimize should prefer real PPO inference over fallback weights."""
 
-    def fake_predict_ppo_weights(tickers: list[str]) -> dict[str, float]:
+    def fake_predict_ppo_weights(
+        tickers: list[str],
+        risk_tags: list[str] | None = None,
+    ) -> dict[str, float]:
+        assert risk_tags == ["실적쇼크"]
         return {tickers[0]: 0.7, tickers[1]: 0.3}
 
     monkeypatch.setattr(
         api_services, "_predict_ppo_weights", fake_predict_ppo_weights, raising=False
     )
 
-    response = client.post("/optimize", json={"tickers": ["SPY", "QQQ"]})
+    response = client.post(
+        "/optimize",
+        json={"tickers": ["SPY", "QQQ"], "risk_tags": ["실적쇼크"]},
+    )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ready"
     assert payload["weights"] == {"SPY": 0.7, "QQQ": 0.3}
     assert "PPO" in payload["message"]
+
+
+def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
+    """PPO inference should convert risk_tags into PortfolioEnv risk_vector."""
+    captured: dict[str, object] = {}
+    dates = pd.date_range("2024-01-01", periods=40, freq="B")
+    returns = pd.DataFrame({"SPY": [0.001] * 40, "QQQ": [0.002] * 40}, index=dates)
+    features = pd.DataFrame(
+        {
+            "SPY_return": [0.001] * 40,
+            "QQQ_return": [0.002] * 40,
+            "SPY_RSI": [50.0] * 40,
+            "QQQ_RSI": [55.0] * 40,
+            "SPY_MACD_signal": [0.0] * 40,
+            "QQQ_MACD_signal": [0.0] * 40,
+        },
+        index=dates,
+    )
+
+    class FakeModel:
+        def predict(self, obs, deterministic: bool = True):
+            return [0.8, 0.2], None
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            captured["risk_vector"] = kwargs["risk_vector"]
+            self.features_df = features
+            self.asset_names = ["SPY", "QQQ"]
+
+        def reset(self):
+            return [0.0], {}
+
+        def _get_observation(self):
+            return [0.0]
+
+        def _normalize_action(self, action):
+            return action
+
+    import src.rl.env as rl_env
+
+    monkeypatch.setattr(api_services, "_load_returns", lambda: returns)
+    monkeypatch.setattr(api_services, "_load_features", lambda: features)
+    monkeypatch.setattr(api_services, "_load_ppo_model", lambda: FakeModel())
+    monkeypatch.setattr(rl_env, "PortfolioEnv", FakeEnv)
+
+    weights = api_services._predict_ppo_weights(["SPY", "QQQ"], ["실적쇼크", "급등락"])
+
+    assert weights == {"SPY": 0.8, "QQQ": 0.2}
+    assert captured["risk_vector"].tolist() == [0.0, 1.0, 1.0]
 
 
 def test_explain_returns_feature_contributions() -> None:
@@ -219,62 +276,32 @@ def test_research_falls_back_when_graph_raises(monkeypatch) -> None:
     assert payload["risk_tags"] == ["급등락"]
 
 
-def test_research_uses_fast_local_rag_when_documents_exist(monkeypatch) -> None:
-    """POST /research should return a ready local-RAG report without waiting for LangGraph."""
-    import src.agent.vectorstore as vectorstore
+def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> None:
+    """POST /research should use LangGraph rather than local fast/seed shortcuts."""
+    calls: list[str] = []
 
-    def fake_query_documents(*args, **kwargs) -> dict:
+    def fake_run_graph_with_timeout(question: str) -> dict:
+        calls.append(question)
         return {
-            "documents": [
-                [
-                    "SPY는 미국 대형주 경기 민감도를 반영하고 TLT는 장기 금리 변화에 민감합니다.",
-                    "금리 인하 국면에서는 장기채 가격과 성장주 밸류에이션이 함께 움직일 수 있습니다.",
-                ]
-            ],
-            "metadatas": [
-                [
-                    {"title": "SPY TLT 리스크", "url": "https://example.com/spy-tlt"},
-                    {"title": "금리 인하와 ETF", "url": "https://example.com/rates-etf"},
-                ]
-            ],
+            "response": "LangGraph 분석 완료",
+            "sources": ["https://example.com/langgraph"],
+            "reasoning_trace": "[THINK][analyst] 완료",
+            "rl_risk_tags": ["급등락"],
         }
 
-    def fail_graph(question: str) -> dict:
-        raise AssertionError("LangGraph should not run for fast local RAG")
-
-    api_services._build_fast_research_response.cache_clear()
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(api_services, "_build_seed_research_response", lambda question: None)
-    monkeypatch.setattr(vectorstore, "query_documents", fake_query_documents)
-    monkeypatch.setattr(api_services, "run_graph", fail_graph)
+    monkeypatch.setattr(api_services, "_rag_has_documents", lambda: False)
+    monkeypatch.setattr(api_services, "_run_graph_with_timeout", fake_run_graph_with_timeout)
 
     response = client.post("/research", json={"question": "SPY와 TLT 배분 리스크는?"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ready"
-    assert "SPY" in payload["report"]
-    assert payload["sources"] == ["https://example.com/spy-tlt", "https://example.com/rates-etf"]
-    assert payload["reasoning_trace"]
-    assert payload["elapsed_ms"] < 5000
-    api_services._build_fast_research_response.cache_clear()
-
-
-def test_rag_seed_documents_enable_ready_research(monkeypatch, tmp_path) -> None:
-    """Local seed documents should make /research ready without Chroma query warmup."""
-    persist_dir = str(tmp_path / "chroma_seed")
-    monkeypatch.setattr(api_services.settings, "CHROMA_PERSIST_DIR", persist_dir)
-    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
-    api_services._build_fast_research_response.cache_clear()
-
-    response = client.post("/research", json={"question": "SPY와 TLT 금리 리스크는?"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "ready"
-    assert payload["sources"]
-    assert "SPY" in payload["report"] or "TLT" in payload["report"]
-    api_services._build_fast_research_response.cache_clear()
+    assert payload["report"] == "LangGraph 분석 완료"
+    assert payload["sources"] == ["https://example.com/langgraph"]
+    assert payload["risk_tags"] == ["급등락"]
+    assert calls == ["SPY와 TLT 배분 리스크는?"]
 
 
 def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
@@ -284,8 +311,6 @@ def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
         raise TimeoutError(f"research timed out for {question}")
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(api_services, "_rag_has_documents", lambda: True)
-    monkeypatch.setattr(api_services, "_build_fast_research_response", lambda question: None)
     monkeypatch.setattr(api_services, "_run_graph_with_timeout", raise_timeout)
 
     response = client.post("/research", json={"question": "삼성전자 실적 리스크는?"})
@@ -331,6 +356,8 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert len(lines[1]) < 1000
     assert '"type":"on_chain_end"' in lines[2]
     assert '"type":"complete"' in lines[-1]
+    assert '"report":"분석 완료"' in lines[-1]
+    assert "급등락" in lines[-1]
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:
