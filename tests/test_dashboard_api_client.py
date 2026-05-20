@@ -6,7 +6,14 @@ from typing import Any
 
 import requests
 
-from apps.dashboard.api_client import get_json, post_json, stream_ndjson
+from apps.dashboard.api_client import (
+    build_optimize_payload,
+    extract_risk_tags_from_research_event,
+    get_json,
+    post_json,
+    risk_vector_from_tags,
+    stream_ndjson,
+)
 
 
 class _DummyResponse:
@@ -97,3 +104,25 @@ def test_stream_ndjson_yields_formatted_events(monkeypatch) -> None:
     )
 
     assert chunks == ["start:\n", "on_chain_start:planner\n", "complete:\n"]
+
+
+def test_research_complete_event_extracts_rl_risk_tags() -> None:
+    """Dashboard should capture stream risk tags for session storage."""
+    event = {
+        "type": "complete",
+        "question": "q",
+        "report": "r",
+        "sources": [],
+        "reasoning_trace": "",
+        "risk_tags": ["실적쇼크", "급등락", "금리_리스크"],
+    }
+
+    assert extract_risk_tags_from_research_event(event) == ["실적쇼크", "급등락"]
+    assert risk_vector_from_tags(["실적쇼크", "급등락"]) == [0.0, 1.0, 1.0]
+
+
+def test_build_optimize_payload_includes_session_risk_tags() -> None:
+    """Dashboard /optimize payload should carry session risk tags."""
+    payload = build_optimize_payload(1.5, ["실적쇼크", "급등락"])
+
+    assert payload == {"risk_aversion": 1.5, "risk_tags": ["실적쇼크", "급등락"]}

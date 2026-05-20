@@ -20,10 +20,26 @@ import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
 
 try:
-    from apps.dashboard.api_client import get_json, post_json, stream_ndjson
+    from apps.dashboard.api_client import (
+        RL_RISK_TAGS,
+        build_optimize_payload,
+        extract_risk_tags_from_research_event,
+        get_json,
+        post_json,
+        risk_vector_from_tags,
+        stream_ndjson,
+    )
 except ModuleNotFoundError:
     # Streamlit file-entry execution inside Docker may not resolve the package root.
-    from api_client import get_json, post_json, stream_ndjson
+    from api_client import (
+        RL_RISK_TAGS,
+        build_optimize_payload,
+        extract_risk_tags_from_research_event,
+        get_json,
+        post_json,
+        risk_vector_from_tags,
+        stream_ndjson,
+    )
 
 try:
     from config import TICKERS_GLOBAL, TICKERS_KR
@@ -94,7 +110,8 @@ def _format_research_event(event: dict[str, Any]) -> str:
         tags = ", ".join(data.get("risk_tags", []))
         return f"[fallback] {report}\n리스크 태그: {tags}\n"
     if event_type == "complete":
-        return "[complete] 리서치 스트림 종료\n"
+        tags = ", ".join(event.get("risk_tags", [])) or "없음"
+        return f"[complete] 리서치 스트림 종료\n리스크 태그: {tags}\n"
     if text:
         return f"[{event_type}][{name}] {text}\n"
 
@@ -106,12 +123,23 @@ def _format_research_event(event: dict[str, Any]) -> str:
     return f"[{event_type}][{name}] {summary}\n"
 
 
+def _remember_research_risk_tags(event: dict[str, Any]) -> None:
+    """Store stream risk tags in Streamlit session state for /optimize."""
+    tags = extract_risk_tags_from_research_event(event)
+    if event.get("type") in {"complete", "fallback"}:
+        st.session_state["risk_tags"] = tags
+
+
 def _stream_research(question: str):
+    def formatter(event: dict[str, Any]) -> str:
+        _remember_research_risk_tags(event)
+        return _format_research_event(event)
+
     return stream_ndjson(
         API_BASE_URL,
         "/research/stream",
         {"question": question},
-        formatter=_format_research_event,
+        formatter=formatter,
         timeout=_TIMEOUT_RESEARCH,
         warn=st.warning,
     )
@@ -439,12 +467,17 @@ def portfolio_page() -> None:
         period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3)
 
     st.title("포트폴리오 현황")
+    current_risk_tags = st.session_state.get("risk_tags", [])
+
+    if current_risk_tags:
+        st.caption(f"이번 최적화에 반영 예정인 리스크 태그: {', '.join(current_risk_tags)}")
+    else:
+        st.caption("이번 최적화에 반영 예정인 리스크 태그: 없음")
 
     if st.button("최적화 실행", key="btn_optimize"):
         with st.spinner("POST /optimize 호출 중…"):
-            data = _post("/optimize", {"risk_aversion": risk_aversion}) or _mock_optimize(
-                risk_aversion
-            )
+            payload = build_optimize_payload(risk_aversion, current_risk_tags)
+            data = _post("/optimize", payload) or _mock_optimize(risk_aversion)
     else:
         data = _mock_optimize(risk_aversion)
 
@@ -842,6 +875,15 @@ def risk_page() -> None:
         )
 
     st.title("리스크 모니터링")
+    current_risk_tags = st.session_state.get("risk_tags", [])
+    risk_vector = risk_vector_from_tags(current_risk_tags)
+
+    st.markdown("**리서치 기반 RL 리스크 관측 벡터**")
+    tag_cols = st.columns(3)
+    for col, tag, value in zip(tag_cols, RL_RISK_TAGS, risk_vector):
+        col.metric(tag, "감지" if value else "미감지", border=True)
+    st.caption(f"관측 벡터 순서 {RL_RISK_TAGS}: {risk_vector}")
+
     with st.spinner("GET /backtest 호출 중…"):
         bt6 = _get("/backtest") or _mock_backtest()
 
