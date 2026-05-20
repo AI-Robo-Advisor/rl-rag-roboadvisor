@@ -9,8 +9,10 @@ import requests
 from apps.dashboard.api_client import (
     build_optimize_payload,
     extract_risk_tags_from_research_event,
+    format_research_log_event,
     get_json,
     post_json,
+    research_result_from_event,
     risk_vector_from_tags,
     stream_ndjson,
 )
@@ -119,6 +121,38 @@ def test_research_complete_event_extracts_rl_risk_tags() -> None:
 
     assert extract_risk_tags_from_research_event(event) == ["실적쇼크", "급등락"]
     assert risk_vector_from_tags(["실적쇼크", "급등락"]) == [0.0, 1.0, 1.0]
+
+
+def test_research_result_from_complete_event() -> None:
+    """Dashboard should keep final report and sources separate from logs."""
+    event = {
+        "type": "complete",
+        "question": "q",
+        "report": "최종 리포트",
+        "sources": ["https://example.com"],
+        "reasoning_trace": "trace",
+        "risk_tags": ["실적쇼크", "금리_리스크"],
+    }
+
+    result = research_result_from_event(event)
+
+    assert result == {
+        "status": "ready",
+        "question": "q",
+        "report": "최종 리포트",
+        "sources": ["https://example.com"],
+        "reasoning_trace": "trace",
+        "risk_tags": ["실적쇼크"],
+    }
+
+
+def test_research_log_formatter_filters_noisy_chat_chunks() -> None:
+    """Dashboard log should hide raw chat token chunks and keep milestones."""
+    assert format_research_log_event({"type": "on_chat_model_stream", "text": "토큰"}) == ""
+    assert (
+        format_research_log_event({"type": "on_chain_start", "name": "planner"})
+        == "질문 분석 시작\n"
+    )
 
 
 def test_build_optimize_payload_includes_session_risk_tags() -> None:

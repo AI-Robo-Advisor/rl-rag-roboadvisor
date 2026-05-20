@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
@@ -24,8 +24,10 @@ try:
         RL_RISK_TAGS,
         build_optimize_payload,
         extract_risk_tags_from_research_event,
+        format_research_log_event,
         get_json,
         post_json,
+        research_result_from_event,
         risk_vector_from_tags,
         stream_ndjson,
     )
@@ -35,8 +37,10 @@ except ModuleNotFoundError:
         RL_RISK_TAGS,
         build_optimize_payload,
         extract_risk_tags_from_research_event,
+        format_research_log_event,
         get_json,
         post_json,
+        research_result_from_event,
         risk_vector_from_tags,
         stream_ndjson,
     )
@@ -98,29 +102,7 @@ def _post(endpoint: str, payload: dict, timeout: int = _TIMEOUT_DEFAULT) -> dict
 
 def _format_research_event(event: dict[str, Any]) -> str:
     """Format one /research/stream NDJSON event for st.write_stream."""
-    event_type = event.get("type", "event")
-    name = event.get("name") or "research"
-    data = event.get("data") or {}
-    text = event.get("text") or ""
-
-    if event_type == "start":
-        return f"[start] {event.get('question', '')}\n"
-    if event_type == "fallback":
-        report = data.get("report", "")
-        tags = ", ".join(data.get("risk_tags", []))
-        return f"[fallback] {report}\n리스크 태그: {tags}\n"
-    if event_type == "complete":
-        tags = ", ".join(event.get("risk_tags", [])) or "없음"
-        return f"[complete] 리서치 스트림 종료\n리스크 태그: {tags}\n"
-    if text:
-        return f"[{event_type}][{name}] {text}\n"
-
-    summary = ""
-    if isinstance(data, dict):
-        output = data.get("output") or data.get("chunk") or data.get("input")
-        if output:
-            summary = str(output)
-    return f"[{event_type}][{name}] {summary}\n"
+    return format_research_log_event(event)
 
 
 def _remember_research_risk_tags(event: dict[str, Any]) -> None:
@@ -128,6 +110,10 @@ def _remember_research_risk_tags(event: dict[str, Any]) -> None:
     tags = extract_risk_tags_from_research_event(event)
     if event.get("type") in {"complete", "fallback"}:
         st.session_state["risk_tags"] = tags
+        st.session_state["risk_tags_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result = research_result_from_event(event)
+        if result:
+            st.session_state["research_result"] = result
 
 
 def _stream_research(question: str):
@@ -446,6 +432,38 @@ def _mock_research(question: str) -> dict:
     }
 
 
+def _render_research_result(result: dict[str, Any] | None) -> None:
+    """Render the latest research output as report, tags, and sources."""
+    if not result:
+        return
+
+    tags = result.get("risk_tags", [])
+    updated_at = st.session_state.get("risk_tags_updated_at")
+
+    with st.container(border=True):
+        st.markdown("**리서치 결과**")
+        if result.get("question"):
+            st.caption(f"질문: {result['question']}")
+        st.markdown(result.get("report") or "리서치 결과가 비어 있습니다.")
+
+    with st.container(border=True):
+        st.markdown("**Optimize 반영 상태**")
+        st.caption(
+            f"최근 리서치 태그: {', '.join(tags) if tags else '없음'}"
+            + (f" | 저장 시각: {updated_at}" if updated_at else "")
+        )
+        st.caption(f"RL 관측 벡터 {RL_RISK_TAGS}: {risk_vector_from_tags(tags)}")
+
+    with st.container(border=True):
+        st.markdown("**출처**")
+        sources = result.get("sources") or []
+        if sources:
+            for source in sources:
+                st.markdown(f"- {source}")
+        else:
+            st.caption("표시할 출처가 없습니다.")
+
+
 # ─────────────────────────────────────────────
 # 페이지 함수
 # ─────────────────────────────────────────────
@@ -468,11 +486,19 @@ def portfolio_page() -> None:
 
     st.title("포트폴리오 현황")
     current_risk_tags = st.session_state.get("risk_tags", [])
+    latest_research = st.session_state.get("research_result", {})
+    latest_question = latest_research.get("question")
+    latest_updated_at = st.session_state.get("risk_tags_updated_at")
 
     if current_risk_tags:
-        st.caption(f"이번 최적화에 반영 예정인 리스크 태그: {', '.join(current_risk_tags)}")
+        caption = f"이번 최적화에 반영 예정인 리스크 태그: {', '.join(current_risk_tags)}"
     else:
-        st.caption("이번 최적화에 반영 예정인 리스크 태그: 없음")
+        caption = "이번 최적화에 반영 예정인 리스크 태그: 없음"
+    if latest_question:
+        caption += f" | 최근 리서치: {latest_question}"
+    if latest_updated_at:
+        caption += f" | 저장 시각: {latest_updated_at}"
+    st.caption(caption)
 
     if st.button("최적화 실행", key="btn_optimize"):
         with st.spinner("POST /optimize 호출 중…"):
@@ -771,15 +797,17 @@ def research_page() -> None:
             st.error("질문을 입력하세요.")
         else:
             with st.status("에이전트 리서치 진행 중…", expanded=True) as status:
-                st.write("LangGraph 이벤트 스트림 실행")
+                st.write("LangGraph 진행 상황 수신")
                 stream_text = st.write_stream(_stream_research(question))
                 status.update(label="리서치 스트림 종료", state="complete", expanded=False)
 
             with st.container(border=True):
-                st.markdown("**실시간 추론 로그**")
-                st.code(stream_text, language="text")
+                st.markdown("**추론 로그**")
+                st.code(stream_text.strip() or "표시할 진행 로그가 없습니다.", language="text")
+            _render_research_result(st.session_state.get("research_result"))
     else:
         st.info("위에서 질문을 입력하고 '리서치 실행' 버튼을 누르세요.")
+        _render_research_result(st.session_state.get("research_result"))
 
 
 def anova_page() -> None:
