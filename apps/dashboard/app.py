@@ -750,9 +750,10 @@ def research_page() -> None:
 
     question = st.text_area(
         "투자 질문 입력",
-        placeholder="ex. 삼성전자 HBM 반도체 실적 전망은?",
+        placeholder="ex. SPY와 TLT 배분 리스크는?",
         height=80,
     )
+    st.caption("데이터셋 자산 예시: SPY, QQQ, IWM, EFA, EEM, TLT, GLD, VNQ, 069500, 114260")
 
     # Enter → 리서치 실행, Shift+Enter → 줄바꿈
     st.components.v1.html(
