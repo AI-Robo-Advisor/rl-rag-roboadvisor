@@ -136,7 +136,8 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 {
   "tickers": ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"],
   "risk_profile": "balanced",
-  "risk_aversion": 1.0
+  "risk_aversion": 1.0,
+  "risk_tags": ["실적쇼크", "급등락"]
 }
 ```
 
@@ -145,8 +146,9 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 | `tickers` | `list[str]` | 아니오 | 10개 전체 자산 | 최적화할 자산 티커 목록 (1개 이상) |
 | `risk_profile` | `"conservative" \| "balanced" \| "aggressive"` | 아니오 | `"balanced"` | 위험 성향 프리셋 |
 | `risk_aversion` | `float` (> 0) | 아니오 | `null` | 수치형 위험 회피 계수. 설정 시 `risk_profile` 보다 우선 |
+| `risk_tags` | `list[str] \| null` | 아니오 | `null` | `/research/stream` 완료 이벤트에서 받은 RL 연동 리스크 태그. PPO ready 경로에서 `risk_vector`로 변환 |
 
-> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5}`
+> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["실적쇼크", "급등락"]}`
 
 #### 응답 `200 OK`
 
@@ -270,9 +272,8 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
 |------|------|------|------|
 | `question` | `str` (1자 이상) | **예** | 투자 관련 질문 |
 
-> **처리 시간 안내**: LangGraph Self-Correction 루프(최대 3회)로 인해 10~30초 소요 가능.  
-> 대시보드에서 `st.spinner()`로 처리하며, 타임아웃은 대시보드 측 `REQUEST_TIMEOUT = 10`초.  
-> Sprint 3에서는 **동기 방식 유지** (폴링·SSE 미적용). 타임아웃 값은 30초로 늘리는 것을 권장.
+> **대시보드 기본 경로**: 리서치 탭은 `POST /research/stream`을 기본으로 사용한다.
+> `POST /research`는 동일한 `ResearchResponse` 계약을 유지하되, fast/seed shortcut 없이 LangGraph 실행 결과 또는 장애 fallback을 반환한다.
 
 #### 응답 `200 OK`
 
@@ -312,6 +313,49 @@ state = run_graph("삼성전자 최근 투자 리스크 분석해줘")
 #   state["rl_risk_tags"]     → list[str]  리스크 태그
 #   state["messages"]         → list  LangGraph 메시지 (reasoning_trace fallback)
 ```
+
+#### 스트리밍 응답 `POST /research/stream`
+
+멘토 피드백에 따라 Streamlit `st.write_stream()` 연동용 스트리밍 엔드포인트를 별도로 제공한다.
+기존 `POST /research` 동기 응답 계약은 유지하고, 대시보드 리서치 화면은 아래 스트리밍 엔드포인트를 기본으로 사용한다.
+
+| 항목 | 값 |
+|------|----|
+| URL | `POST /research/stream` |
+| 요청 바디 | `ResearchRequest`와 동일 (`{"question": "..."}`) |
+| 응답 타입 | `StreamingResponse` |
+| Media Type | `application/x-ndjson` |
+| Proxy 헤더 | `X-Accel-Buffering: no` |
+
+NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
+
+```json
+{"type":"start","question":"삼성전자 HBM 전망은?"}
+{"type":"on_chain_start","name":"planner","text":"..."}
+{"type":"on_chain_end","name":"analyst","text":"분석 완료"}
+{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["실적쇼크"]}
+```
+
+`complete` 이벤트 스키마는 아래 필드를 포함한다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `type` | `"complete"` | 완료 이벤트 식별자 |
+| `question` | `str` | 요청 질문 |
+| `report` | `str` | 최종 리포트 |
+| `sources` | `list[str]` | 참고 URL 목록 |
+| `reasoning_trace` | `str` | 추론 로그 |
+| `risk_tags` | `list[str]` | RL 연동 태그 (`규제변경`, `실적쇼크`, `급등락`) |
+
+`risk_tags`는 API 서버에 영속 저장하지 않는다. 대시보드는 `complete.risk_tags`를 `st.session_state["risk_tags"]`에 저장하고, 다음 `POST /optimize` 요청에 명시적으로 포함해야 한다.
+
+`OPENAI_API_KEY`가 없거나 LangGraph 실행 중 오류가 나면 연결을 오래 유지하지 않고 fallback 이벤트를 반환한다.
+
+```json
+{"type":"fallback","name":"research","data":{"status":"fallback","question":"..."}}
+```
+
+5초 ready 응답 및 TTFB 중심 성능 최적화는 이번 단계의 성공 기준이 아니다. 현재 단계는 `research → risk_tags → Streamlit session → /optimize → get_risk_vector() → PortfolioEnv` 파이프라인 연결을 우선 완료하고, 성능 목표는 후속 최적화 단계에서 재검토한다.
 
 ---
 
@@ -522,6 +566,12 @@ date,episode_return
 
 RiskProfile = Literal["conservative", "balanced", "aggressive"]
 EndpointStatus = Literal["ready", "fallback", "unavailable"]
+
+class OptimizeRequest(BaseModel):
+    tickers: list[str] | None = Field(default=None, min_length=1)
+    risk_profile: RiskProfile = "balanced"
+    risk_aversion: float | None = Field(default=None, gt=0)
+    risk_tags: list[str] | None = None
 
 class TukeyRow(BaseModel):
     group1:    str

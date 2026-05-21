@@ -7,8 +7,14 @@ small: replace the fallback body, keep the response schema.
 
 from __future__ import annotations
 
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from functools import lru_cache
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any
+from time import perf_counter
+from typing import Any, AsyncIterator
 
 import numpy as np
 import pandas as pd
@@ -30,9 +36,26 @@ from apps.api.schemas import (
     TukeyRow,
 )
 
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
+SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
+PPO_TIMEOUT_SECONDS = 4.75
+SHAP_TIMEOUT_SECONDS = 4.75
+RESEARCH_TIMEOUT_SECONDS = 4.5
+_PPO_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+_SHAP_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+_RESEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+_STREAM_EVENT_ALLOWLIST = {
+    "on_chain_start",
+    "on_chain_end",
+    "on_chat_model_stream",
+    "on_tool_start",
+    "on_tool_end",
+}
 WINDOW_PERIODS: dict[BacktestWindow, tuple[str, str]] = {
     "w1": ("2022-01-01", "2022-12-31"),
     "w2": ("2023-01-01", "2023-12-31"),
@@ -54,10 +77,31 @@ DEFAULT_TICKERS: list[str] = [
 ]
 
 
+def _elapsed_ms(start: float) -> float:
+    """Return elapsed wall-clock time in milliseconds."""
+    return round((perf_counter() - start) * 1000, 3)
+
+
+@lru_cache(maxsize=1)
+def _load_returns() -> pd.DataFrame:
+    """Load processed returns once per API process."""
+    return pd.read_parquet(RETURNS_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_features() -> pd.DataFrame:
+    """Load processed features once per API process."""
+    return pd.read_parquet(FEATURES_PATH)
+
+
 def build_fallback_portfolio(
     tickers: list[str] | None = None,
     risk_profile: RiskProfile = "balanced",
     risk_aversion: float | None = None,
+    risk_tags: list[str] | None = None,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
 ) -> OptimizeResponse:
     """Return deterministic normalized weights until the PPO model is connected."""
     selected_tickers = tickers or DEFAULT_TICKERS
@@ -68,17 +112,86 @@ def build_fallback_portfolio(
 
     return OptimizeResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         tickers=selected_tickers,
         weights=weights,
         risk_profile=risk_profile,
         expected_return=expected_return or _profile_return(risk_profile),
         expected_volatility=expected_volatility or _profile_volatility(risk_profile),
         returns=return_series,
-        message="PPO 모델 연결 전 deterministic fallback 포트폴리오입니다.",
+        message=(
+            "PPO 모델 연결 전 deterministic fallback 포트폴리오입니다. "
+            "리스크 태그는 PPO ready 경로에서 관측 벡터로 반영됩니다."
+            if risk_tags
+            else "PPO 모델 연결 전 deterministic fallback 포트폴리오입니다."
+        ),
     )
 
 
-def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
+def build_portfolio_response(
+    tickers: list[str] | None = None,
+    risk_profile: RiskProfile = "balanced",
+    risk_aversion: float | None = None,
+    risk_tags: list[str] | None = None,
+) -> OptimizeResponse:
+    """Return PPO portfolio weights when available, otherwise fallback weights."""
+    start = perf_counter()
+    selected_tickers = tickers or DEFAULT_TICKERS
+    try:
+        weights = _predict_ppo_weights_with_timeout(selected_tickers, risk_tags or [])
+    except Exception as exc:
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            risk_tags,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
+
+    if set(weights) != set(selected_tickers):
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            risk_tags,
+            elapsed_ms=_elapsed_ms(start),
+        )
+
+    total_weight = sum(weights.values())
+    if total_weight <= 0:
+        return build_fallback_portfolio(
+            selected_tickers,
+            risk_profile,
+            risk_aversion,
+            risk_tags,
+            elapsed_ms=_elapsed_ms(start),
+        )
+
+    normalized = {ticker: weight / total_weight for ticker, weight in weights.items()}
+    return_series, expected_return, expected_volatility = _build_return_series(normalized)
+    return OptimizeResponse(
+        status="ready",
+        elapsed_ms=_elapsed_ms(start),
+        timed_out=False,
+        tickers=selected_tickers,
+        weights=normalized,
+        risk_profile=risk_profile,
+        expected_return=expected_return or _profile_return(risk_profile),
+        expected_volatility=expected_volatility or _profile_volatility(risk_profile),
+        returns=return_series,
+        message="PPO 모델 기반 포트폴리오 비중입니다.",
+    )
+
+
+def build_fallback_explanation(
+    date: str | None,
+    top_k: int,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
+) -> ExplainResponse:
     """Return SHAP-like feature contributions for dashboard integration."""
     features = _feature_contributions_from_parquet(date, top_k) or _static_feature_contributions()
 
@@ -87,6 +200,8 @@ def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
     target_date = date or _latest_feature_date()
     return ExplainResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         date=date,
         target_date=target_date,
         base_value=0.05,
@@ -98,30 +213,205 @@ def build_fallback_explanation(date: str | None, top_k: int) -> ExplainResponse:
     )
 
 
+def build_explanation_response(date: str | None, top_k: int) -> ExplainResponse:
+    """Return SHAP explanation from the RL module when available."""
+    start = perf_counter()
+    try:
+        result = _shap_from_artifact(date, top_k) or _compute_ready_shap_with_timeout(date, top_k)
+        return ExplainResponse(
+            status="ready",
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=False,
+            date=result.get("date"),
+            target_date=result.get("target_date"),
+            base_value=result.get("base_value", 0.0),
+            prediction=result.get("prediction", 0.0),
+            feature_contributions=[
+                FeatureContribution(**item) for item in result.get("feature_contributions", [])
+            ],
+            feature_names=list(result.get("feature_names", [])),
+            shap_values=list(result.get("shap_values", [])),
+            message=result.get("message", "PPO SHAP 분석 완료."),
+        )
+    except Exception as exc:
+        return build_fallback_explanation(
+            date,
+            top_k,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
+
+
 def run_graph(question: str) -> dict[str, Any]:
     """Import and run LangGraph lazily so API import stays safe without an API key."""
+    os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
     from src.agent.graph import run_graph as _run_graph
 
     return _run_graph(question)
 
 
+async def stream_graph_events(question: str) -> AsyncIterator[dict[str, Any]]:
+    """Yield LangGraph fine-grained stream events for a research question."""
+    os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+    from src.agent.graph import graph
+
+    initial_state = {
+        "query": question,
+        "messages": [],
+        "plan": "",
+        "context": "",
+        "documents": [],
+        "risk_tags": [],
+        "distances": [],
+        "retry_count": 0,
+        "needs_research_retry": False,
+        "response": "",
+        "sources": [],
+        "reasoning_trace": "",
+    }
+    async for event in graph.astream_events(initial_state, version="v2"):
+        yield event
+
+
+async def stream_research_response(question: str) -> AsyncIterator[str]:
+    """Stream research progress as newline-delimited JSON for Streamlit."""
+    yield _to_ndjson({"type": "start", "question": question})
+
+    if not settings.OPENAI_API_KEY:
+        fallback = build_fallback_research(question)
+        yield _to_ndjson(
+            {
+                "type": "fallback",
+                "name": "research",
+                "data": fallback.model_dump(),
+            }
+        )
+        return
+
+    final_state: dict[str, Any] | None = None
+    try:
+        async for event in stream_graph_events(question):
+            event_state = _state_from_graph_event(event)
+            if event_state:
+                final_state = {**(final_state or {}), **event_state}
+            compact = _compact_graph_event(event)
+            if compact:
+                yield _to_ndjson(compact)
+    except Exception as exc:
+        fallback = build_fallback_research(question)
+        yield _to_ndjson(
+            {
+                "type": "fallback",
+                "name": "research",
+                "data": {
+                    **fallback.model_dump(),
+                    "error": exc.__class__.__name__,
+                },
+            }
+        )
+        return
+
+    response = _research_response_from_state(question, final_state or {})
+    yield _to_ndjson(
+        {
+            "type": "complete",
+            "question": response.question,
+            "report": response.report,
+            "sources": response.sources,
+            "reasoning_trace": response.reasoning_trace,
+            "risk_tags": response.risk_tags,
+        }
+    )
+
+
+def _state_from_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract final LangGraph state-like output from a stream event."""
+    data = event.get("data") or {}
+    if not isinstance(data, dict):
+        return None
+    output = data.get("output")
+    if not isinstance(output, dict):
+        return None
+    useful_keys = {"response", "sources", "reasoning_trace", "risk_tags", "rl_risk_tags"}
+    if not any(key in output for key in useful_keys):
+        return None
+    return {str(key): value for key, value in output.items() if key in useful_keys}
+
+
+def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert LangGraph events to small dashboard-oriented NDJSON payloads."""
+    event_type = str(event.get("event", "event"))
+    if event_type not in _STREAM_EVENT_ALLOWLIST:
+        return None
+
+    name = str(event.get("name") or "research")
+    data = event.get("data") or {}
+    text = ""
+    if isinstance(data, dict):
+        if event_type == "on_chat_model_stream":
+            chunk = data.get("chunk")
+            text = str(getattr(chunk, "content", "") or "")
+        else:
+            output = data.get("output") or data.get("input") or ""
+            text = _compact_event_text(output)
+
+    if event_type == "on_chat_model_stream" and not text:
+        return None
+    return {"type": event_type, "name": name, "text": text[:500]}
+
+
+def _compact_event_text(value: Any) -> str:
+    """Return a compact string from nested event payloads."""
+    if isinstance(value, dict):
+        for key in ("response", "context", "query", "plan"):
+            if value.get(key):
+                return str(value[key])
+        return json.dumps(_jsonable(value), ensure_ascii=False, separators=(",", ":"))[:500]
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value[:3])
+    return str(value)
+
+
 def build_research_response(question: str) -> ResearchResponse:
     """Run LangGraph when configured, otherwise return the deterministic fallback."""
+    start = perf_counter()
     if not settings.OPENAI_API_KEY:
-        return build_fallback_research(question)
+        return build_fallback_research(question, elapsed_ms=_elapsed_ms(start))
 
     try:
-        state = run_graph(question)
-    except Exception:
-        return build_fallback_research(question)
+        state = _run_graph_with_timeout(question)
+    except Exception as exc:
+        return build_fallback_research(
+            question,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=isinstance(exc, TimeoutError),
+        )
 
+    response = _research_response_from_state(question, state)
+    response.elapsed_ms = _elapsed_ms(start)
+    return response
+
+
+def _run_graph_with_timeout(question: str) -> dict[str, Any]:
+    """Run synchronous LangGraph research with a request-time budget."""
+    future = _RESEARCH_EXECUTOR.submit(run_graph, question)
+    try:
+        return future.result(timeout=RESEARCH_TIMEOUT_SECONDS)
+    except TimeoutError:
+        future.cancel()
+        raise
+
+
+def _research_response_from_state(question: str, state: dict[str, Any]) -> ResearchResponse:
+    """Convert LangGraph state into the public ResearchResponse schema."""
     report = str(state.get("response") or "").strip()
     if not report:
         return build_fallback_research(question)
 
     messages = state.get("messages") or []
     reasoning_trace = state.get("reasoning_trace") or "\n".join(str(item) for item in messages)
-    risk_tags = state.get("rl_risk_tags") or state.get("risk_tags") or _infer_risk_tags(question)
+    raw_risk_tags = state.get("rl_risk_tags") or state.get("risk_tags") or []
+    risk_tags = _normalize_rl_risk_tags(raw_risk_tags) or _infer_risk_tags(question)
     sources = [str(source) for source in state.get("sources", []) if source]
 
     return ResearchResponse(
@@ -130,15 +420,22 @@ def build_research_response(question: str) -> ResearchResponse:
         report=report,
         sources=sources or ["https://github.com/AI-Robo-Advisor/rl-rag-roboadvisor"],
         reasoning_trace=reasoning_trace,
-        risk_tags=[str(tag) for tag in risk_tags],
+        risk_tags=risk_tags,
     )
 
 
-def build_fallback_research(question: str) -> ResearchResponse:
+def build_fallback_research(
+    question: str,
+    *,
+    elapsed_ms: float = 0.0,
+    timed_out: bool = False,
+) -> ResearchResponse:
     """Return a stable RAG-style payload until LangGraph is connected."""
     risk_tags = _infer_risk_tags(question)
     return ResearchResponse(
         status="fallback",
+        elapsed_ms=elapsed_ms,
+        timed_out=timed_out,
         question=question,
         report=(
             "현재 응답은 LangGraph 에이전트 연결 전 fallback입니다. 질문의 핵심 위험 요인을 "
@@ -158,7 +455,9 @@ def build_fallback_research(question: str) -> ResearchResponse:
 
 def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestResponse:
     """Return metric output from available data plus fallback ANOVA summaries."""
-    metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload(window)
+    metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload(
+        window
+    )
     anova = _fallback_anova()
     current_mdd = float(metrics.get("mdd", 0.0))
     return BacktestResponse(
@@ -181,22 +480,277 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
             triggered_at=None,
             current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
         ),
-        message=(
-            f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. "
-            f"(window={window})"
-        ),
+        message=(f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. " f"(window={window})"),
     )
+
+
+def build_backtest_response(window: BacktestWindow = "final") -> BacktestResponse:
+    """Return RL backtest/anova results when available, otherwise fallback."""
+    start = perf_counter()
+    try:
+        response = _build_ready_backtest_response_cached(window).model_copy(deep=True)
+        response.elapsed_ms = _elapsed_ms(start)
+        return response
+    except Exception as exc:
+        response = build_fallback_backtest(window)
+        response.elapsed_ms = _elapsed_ms(start)
+        response.timed_out = isinstance(exc, TimeoutError)
+        return response
 
 
 def build_module_statuses() -> dict[str, str]:
     """Return runtime readiness using only files and modules available locally."""
     return {
         "data": "ready" if _can_load_data_files() else "fallback",
-        "rl": "fallback",
-        "rag": "ready" if settings.OPENAI_API_KEY else "fallback",
-        "shap": "fallback",
-        "backtest": "fallback",
+        "rl": "ready" if _is_ppo_ready() else "fallback",
+        "rag": "ready" if settings.OPENAI_API_KEY and _has_local_research_corpus() else "fallback",
+        "shap": "ready" if _is_shap_ready() else "fallback",
+        "backtest": "ready" if _is_backtest_ready() else "fallback",
     }
+
+
+def _predict_ppo_weights(
+    tickers: list[str],
+    risk_tags: list[str] | None = None,
+) -> dict[str, float]:
+    """Run the trained PPO policy once and return selected asset weights."""
+    returns = _load_returns()
+    features = _load_features()
+    missing = [ticker for ticker in tickers if ticker not in returns.columns]
+    if missing:
+        raise ValueError(f"Unknown tickers for PPO model: {missing}")
+
+    from src.agent.risk_tags import get_risk_vector
+    from src.rl.env import PortfolioEnv
+
+    model = _load_ppo_model()
+    env = PortfolioEnv(
+        returns_df=returns,
+        features_df=features,
+        lookback=30,
+        reward_type="sharpe",
+        risk_vector=get_risk_vector(risk_tags or []),
+    )
+    obs, _ = env.reset()
+    env.current_step = len(env.features_df) - 1
+    obs = env._get_observation()
+    action, _ = model.predict(obs, deterministic=True)
+    full_weights = env._normalize_action(action)
+    by_asset = {asset: float(full_weights[index]) for index, asset in enumerate(env.asset_names)}
+    return {ticker: by_asset[ticker] for ticker in tickers}
+
+
+def _predict_ppo_weights_with_timeout(
+    tickers: list[str],
+    risk_tags: list[str] | None = None,
+) -> dict[str, float]:
+    """Run PPO inference with a request-time budget."""
+    future = _PPO_EXECUTOR.submit(_predict_ppo_weights, tickers, risk_tags or [])
+    try:
+        return future.result(timeout=PPO_TIMEOUT_SECONDS)
+    except TimeoutError:
+        future.cancel()
+        raise
+
+
+@lru_cache(maxsize=1)
+def _load_ppo_model() -> Any:
+    """Load the PPO model once per API process."""
+    from stable_baselines3 import PPO
+
+    return PPO.load(str(PPO_MODEL_PATH))
+
+
+def warm_runtime_caches() -> None:
+    """Warm request-critical caches during API startup/import."""
+    try:
+        _load_returns()
+        _load_features()
+        if _is_ppo_ready():
+            _load_ppo_model()
+    except Exception:
+        return
+
+
+def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
+    """Compute a bounded SHAP explanation through src.rl.shap."""
+    from src.rl.shap import compute_shap_explanation
+
+    features = _load_features()
+    returns = _load_returns()
+    return compute_shap_explanation(
+        model_path=PPO_MODEL_PATH,
+        features_df=features,
+        returns_df=returns,
+        date=date,
+        top_k=top_k,
+        background_size=5,
+        nsamples=20,
+    )
+
+
+def _compute_ready_shap_with_timeout(date: str | None, top_k: int) -> dict[str, Any]:
+    """Run SHAP explanation with a request-time budget."""
+    future = _SHAP_EXECUTOR.submit(_compute_ready_shap_cached, date, top_k)
+    try:
+        return future.result(timeout=SHAP_TIMEOUT_SECONDS)
+    except TimeoutError:
+        future.cancel()
+        raise
+
+
+@lru_cache(maxsize=32)
+def _compute_ready_shap_cached(date: str | None, top_k: int) -> dict[str, Any]:
+    """Cache live SHAP results for repeated dashboard lookups."""
+    return _compute_ready_shap(date, top_k)
+
+
+@lru_cache(maxsize=1)
+def _load_shap_artifact() -> dict[str, Any] | None:
+    """Load precomputed SHAP explanations when an artifact is available."""
+    if not SHAP_ARTIFACT_PATH.exists():
+        return None
+    with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
+        artifact = json.load(fp)
+    return artifact if isinstance(artifact, dict) else None
+
+
+def _shap_from_artifact(date: str | None, top_k: int) -> dict[str, Any] | None:
+    """Return a ready SHAP payload from a precomputed artifact."""
+    artifact = _load_shap_artifact()
+    if not artifact:
+        return None
+
+    explanations = artifact.get("explanations")
+    if not isinstance(explanations, list) or not explanations:
+        return None
+
+    target = date or str(artifact.get("latest_date") or "")
+    candidates = [
+        item for item in explanations if isinstance(item, dict) and str(item.get("date")) <= target
+    ]
+    selected = candidates[-1] if candidates else explanations[-1]
+    contributions = list(selected.get("feature_contributions", []))[:top_k]
+    if not contributions:
+        return None
+
+    return {
+        "date": date,
+        "target_date": selected.get("date"),
+        "base_value": selected.get("base_value", 0.0),
+        "prediction": selected.get("prediction", 0.0),
+        "feature_contributions": contributions,
+        "feature_names": [item.get("feature", "") for item in contributions],
+        "shap_values": [item.get("contribution", 0.0) for item in contributions],
+        "message": "사전 계산된 SHAP artifact 기반 해석입니다.",
+    }
+
+
+def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
+    """Build BacktestResponse from implemented RL backtest and ANOVA modules."""
+    from src.rl.anova import run_all_anova
+    from src.rl.backtest import WINDOWS, run_window_backtest
+
+    returns = _load_returns()
+    features = _load_features()
+    window_config = next(item for item in WINDOWS if item["name"] == window)
+    metrics_raw, portfolio_returns, _ = run_window_backtest(
+        window_config,
+        returns,
+        features,
+        reward="sharpe",
+    )
+    benchmark_returns = (
+        returns.loc[portfolio_returns.index, "SPY"]
+        if "SPY" in returns.columns
+        else returns.loc[portfolio_returns.index].iloc[:, 0]
+    )
+    metrics = _finite_metrics(
+        {
+            key: value
+            for key, value in metrics_raw.items()
+            if isinstance(value, (int, float, np.floating))
+        }
+    )
+    wf_cum_array = np.exp(portfolio_returns.cumsum())
+    bm_cum_array = np.exp(benchmark_returns.cumsum())
+    drawdown_array = (wf_cum_array - np.maximum.accumulate(wf_cum_array)) / np.maximum.accumulate(
+        wf_cum_array
+    )
+    current_mdd = abs(float(drawdown_array.min())) if len(drawdown_array) else 0.0
+    triggered = drawdown_array[drawdown_array <= -0.15]
+    anova = [AnovaResult(**item) for item in run_all_anova(returns)]
+
+    return BacktestResponse(
+        status="ready",
+        metrics=metrics,
+        anova=anova,
+        benchmark="SPY",
+        dates=[index.strftime("%Y-%m-%d") for index in portfolio_returns.index],
+        rewards=_finite_float_list(portfolio_returns.tail(200).cumsum()),
+        wf_cum=_finite_float_list(wf_cum_array),
+        bm_cum=_finite_float_list(bm_cum_array),
+        wf_spark=_finite_float_list(wf_cum_array.tail(50)),
+        sharpe_spark=_rolling_sharpe_spark(portfolio_returns),
+        drawdown=_finite_float_list(drawdown_array),
+        var_95=float(metrics.get("var_95", 0.0)),
+        cvar_95=float(metrics.get("cvar_95", 0.0)),
+        mdd=current_mdd,
+        safeguard=SafeguardState(
+            active=not triggered.empty,
+            triggered_at=triggered.index[0].strftime("%Y-%m-%d") if not triggered.empty else None,
+            current_drawdown=abs(float(drawdown_array.iloc[-1])) if len(drawdown_array) else 0.0,
+        ),
+        message=f"실제 Walk-Forward 백테스트 결과입니다. (window={window}, reward=sharpe)",
+    )
+
+
+@lru_cache(maxsize=4)
+def _build_ready_backtest_response_cached(window: BacktestWindow) -> BacktestResponse:
+    """Cache backtest results because they are immutable for a running API process."""
+    return _build_ready_backtest_response(window)
+
+
+def _is_ppo_ready() -> bool:
+    """Return whether PPO inference can be attempted."""
+    if not PPO_MODEL_PATH.exists():
+        return False
+    return find_spec("stable_baselines3") is not None and _can_load_data_files()
+
+
+def _is_shap_ready() -> bool:
+    """Return whether SHAP explanation can be attempted."""
+    return (
+        PPO_MODEL_PATH.exists()
+        and _can_load_data_files()
+        and find_spec("shap") is not None
+        and find_spec("stable_baselines3") is not None
+        and find_spec("torch") is not None
+    )
+
+
+def _is_backtest_ready() -> bool:
+    """Return whether the full backtest + ANOVA stack is available."""
+    return (
+        _can_load_data_files()
+        and find_spec("scipy") is not None
+        and find_spec("statsmodels") is not None
+    )
+
+
+def _rag_has_documents() -> bool:
+    """Return whether the configured Chroma collection has retrievable documents."""
+    try:
+        from src.agent.vectorstore import collection_document_count
+
+        return collection_document_count(settings.CHROMA_PERSIST_DIR) > 0
+    except Exception:
+        return False
+
+
+def _has_local_research_corpus() -> bool:
+    """Return whether /research has local documents available for ready responses."""
+    return _rag_has_documents()
 
 
 def _risk_adjusted_raw_weights(
@@ -241,7 +795,7 @@ def _build_return_series(
 ) -> tuple[ReturnSeries, float | None, float | None]:
     """Build cumulative portfolio and benchmark series from returns.parquet when available."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
+        returns = _load_returns()
         usable = [ticker for ticker in weights if ticker in returns.columns]
         if not usable:
             return _static_return_series(), None, None
@@ -287,7 +841,7 @@ def _feature_contributions_from_parquet(
 ) -> list[FeatureContribution] | None:
     """Build deterministic SHAP-like contributions from the nearest feature row."""
     try:
-        features = pd.read_parquet(FEATURES_PATH)
+        features = _load_features()
         if features.empty:
             return None
         if requested_date:
@@ -327,7 +881,7 @@ def _static_feature_contributions() -> list[FeatureContribution]:
 def _latest_feature_date() -> str | None:
     """Return the latest feature date if available."""
     try:
-        features = pd.read_parquet(FEATURES_PATH, columns=[])
+        features = _load_features()
         if features.empty:
             return None
         return features.index[-1].strftime("%Y-%m-%d")
@@ -346,7 +900,7 @@ def _build_backtest_payload(window: BacktestWindow) -> tuple[
 ]:
     """Use returns.parquet and metrics.py when available; otherwise return deterministic fallback."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
+        returns = _load_returns()
         if returns.empty:
             raise ValueError("returns.parquet is empty")
 
@@ -356,7 +910,9 @@ def _build_backtest_payload(window: BacktestWindow) -> tuple[
 
         portfolio_returns = windowed_returns.mean(axis=1)
         benchmark_returns = (
-            windowed_returns["SPY"] if "SPY" in windowed_returns.columns else windowed_returns.iloc[:, 0]
+            windowed_returns["SPY"]
+            if "SPY" in windowed_returns.columns
+            else windowed_returns.iloc[:, 0]
         )
         metrics = _metrics_from_returns(portfolio_returns, benchmark_returns)
 
@@ -544,8 +1100,8 @@ def _finite_float(value: Any) -> float:
 def _can_load_data_files() -> bool:
     """Check whether the API can read the local parquet data files."""
     try:
-        returns = pd.read_parquet(RETURNS_PATH)
-        features = pd.read_parquet(FEATURES_PATH)
+        returns = _load_returns()
+        features = _load_features()
     except (OSError, ValueError, ImportError):
         return False
     return not returns.empty and not features.empty
@@ -564,3 +1120,38 @@ def _infer_risk_tags(question: str) -> list[str]:
     ):
         tags.append("급등락")
     return tags or ["급등락"]
+
+
+def _normalize_rl_risk_tags(tags: Any) -> list[str]:
+    """Keep only tags that belong to the fixed RL observation vector."""
+    try:
+        from src.agent.risk_tags import RL_RISK_TAGS
+    except Exception:
+        RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
+
+    allowed = set(RL_RISK_TAGS)
+    return [str(tag) for tag in tags or [] if str(tag) in allowed]
+
+
+def _to_ndjson(payload: dict[str, Any]) -> str:
+    """Serialize one compact UTF-8 NDJSON event."""
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert LangGraph event data into JSON-serializable primitives."""
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        pass
+
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump())
+    if hasattr(value, "dict"):
+        return _jsonable(value.dict())
+    return str(value)

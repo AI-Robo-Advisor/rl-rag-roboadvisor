@@ -38,6 +38,7 @@ build/
 chroma_db/
 
 CLAUDE.local.md
+agent.md
 prompt.txt
 
 # 로컬 전용 모델 파일 (git 추적 제외)

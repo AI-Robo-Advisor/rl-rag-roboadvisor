@@ -114,6 +114,33 @@ risk_df = pd.read_parquet("data/processed/risk_vectors_daily.parquet").set_index
 vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equity","risk_geo"]], dtype=np.float32)
 ```
 
+### 2-3. Research → Optimize 리스크 상태 전달
+
+이번 통합 단계의 리스크 전달 흐름은 서버 저장소 없이 Streamlit 세션을 사용한다.
+
+```text
+/research/stream complete.risk_tags
+  → st.session_state["risk_tags"]
+  → /optimize request.risk_tags
+  → get_risk_vector(risk_tags)
+  → PortfolioEnv(risk_vector=...)
+```
+
+공통 태그 순서는 항상 아래와 같다.
+
+```python
+["규제변경", "실적쇼크", "급등락"]
+```
+
+벡터 매핑은 각 태그의 감지 여부를 0/1로 표현한다.
+
+```python
+get_risk_vector(["실적쇼크", "급등락"])
+# array([0., 1., 1.], dtype=float32)
+```
+
+장점은 사용자별 서버 상태 저장소, DB, 만료 정책 없이 단순하게 구현할 수 있고, `/optimize` 요청이 self-contained라 API 테스트가 쉽다는 점이다. 한계는 브라우저 새로고침, Streamlit 세션 만료, Streamlit 재시작 시 `risk_tags`가 사라지고, 서버에서 “이 최적화가 어떤 리서치 결과에 근거했는지” 이력을 추적할 수 없다는 점이다. 서버 이력 추적이 필요하면 후속 단계에서 `risk_context_id` 저장소를 추가한다.
+
 ---
 
 ## 3. RL 공유 인터페이스
@@ -208,11 +235,11 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
 
 ### 4-1. TODO — Walk-Forward 정규화 연동
 
-- [ ] `train_walkforward.py`는 `raw_features.parquet`에서 학습 구간 통계(mean/std)를 계산한다.
+- [x] `train_walkforward.py`는 `raw_features.parquet`에서 학습 구간 통계(mean/std)를 계산한다.
 - [x] `backtest.py`는 테스트 구간을 학습 구간 통계로만 변환한다.
 - [x] `features.parquet`을 Walk-Forward 학습/백테스트의 직접 입력으로 사용하지 않는다.
-- [ ] 정규화 통계 저장 경로를 팀 합의 후 고정한다. 예: `data/processed/scalers/{window}_feature_stats.json`.
+- [x] 정규화 통계 저장 경로 확정: `data/processed/scalers/{window}_feature_stats.json`.
 
 ---
 
-*최종 업데이트: 2026-05-15 / 작성: 박지민*
+*최종 업데이트: 2026-05-14 / 작성: 이문정*
