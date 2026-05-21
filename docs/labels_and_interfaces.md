@@ -75,7 +75,8 @@ date,regime
 
 **정의 위치**: `src/agent/risk_tags.py` — `extract_risk_tags(text)`  
 **활용**: `POST /research` 응답의 `risk_tags` 필드  
-**반환 형식**: score > 0인 축만 포함, `_risk` 접미사 포함
+**반환 형식**: score > 0인 축만 포함, `_risk` 접미사 포함  
+> **API 필드 관계**: JSON 키는 `risk_tags`이나, LangGraph 정상 경로에서는 `rl_risk_tags`(`extract_rl_risk_tags` 기준 — `macro_rate` 등 접미사 없음)가 우선 채워짐. `services.py:124` 참고.
 
 | 반환값 | 설명 |
 |--------|------|

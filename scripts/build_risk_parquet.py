@@ -8,7 +8,7 @@ RL 학습·백테스트용 일별 risk 벡터 파일을 생성합니다.
   data/raw/gdelt/gdelt_events_2020_2025.parquet    (담당: 박지민, 2020~ 수집)
   data/raw/fred/fred_events_2020_2025.parquet      (담당: 이문정, 2020~ 수집)
   data/raw/ecos/ecos_events_2018_2025.parquet      (담당: 강유영)
-  data/raw/manual_seed/manual_seed_events.parquet  (담당: 미정)
+  data/raw/manual_seed/manual_seed_events.parquet  (담당: 강유영 D)
 
 출력:
   data/processed/risk_vectors_daily.parquet

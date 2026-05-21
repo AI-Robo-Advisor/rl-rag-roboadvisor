@@ -15,6 +15,7 @@
 | 로그수익률 | `data/processed/returns.parquet` | 실제 포트폴리오 수익률 계산 |
 | 정규화 전 피처 | `data/processed/raw_features.parquet` | Walk-Forward 정규화 입력 |
 | legacy 피처 | `data/processed/features.parquet` | EDA·기존 코드 호환용, Walk-Forward 학습 직접 사용 금지 |
+| **리스크 벡터** | `data/processed/risk_vectors_daily.parquet` | RL 관측공간 연동 (캘린더 일별, returns index로 align 필요) |
 
 ---
 
