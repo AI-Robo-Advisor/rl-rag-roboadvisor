@@ -96,15 +96,15 @@ date,regime
 
 | 순서 | 태그 | obs 인덱스 | 커버하는 이벤트 유형 |
 |------|------|-----------|-------------------|
-| 0 | `macro_rate` | obs[-3] | 금리 인상·인하, FOMC, CPI, 국채금리 변동, 한국은행 기준금리 |
-| 1 | `equity_market` | obs[-2] | 증시 급락, 경기침체, VIX 급등, 어닝쇼크, KOSPI 급락 |
-| 2 | `geopolitical_fx` | obs[-1] | 전쟁, 관세, 수출 규제, 공급망 충격, 환율 급변 |
+| 0 | `macro_rate_risk` | obs[-3] | 금리 인상·인하, FOMC, CPI, 국채금리 변동, 한국은행 기준금리 |
+| 1 | `equity_market_risk` | obs[-2] | 증시 급락, 경기침체, VIX 급등, 어닝쇼크, KOSPI 급락 |
+| 2 | `geopolitical_fx_risk` | obs[-1] | 전쟁, 관세, 수출 규제, 공급망 충격, 환율 급변 |
 
 **벡터 변환 예시**:
 ```python
 from src.agent.risk_tags import get_risk_vector, extract_rl_risk_tags
 
-tags = extract_rl_risk_tags("Fed 기준금리 0.75%p 인상")   # → ["macro_rate"]
+tags = extract_rl_risk_tags("Fed 기준금리 0.75%p 인상")   # → ["macro_rate_risk"]
 vec  = get_risk_vector("Fed 기준금리 0.75%p 인상")         # → array([1., 0., 0.], dtype=float32)
 #                                                                   macro  equity  geo
 # ※ get_risk_vector는 text를 직접 받음 (tags 리스트 아님)
@@ -130,7 +130,7 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
 공통 태그 순서는 항상 아래와 같다.
 
 ```python
-["macro_rate", "equity_market", "geopolitical_fx"]
+["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 ```
 
 벡터 매핑은 키워드 밀도 스코어 기반(0.0~1.0)이며, `get_risk_vector`는 text를 직접 받는다.
@@ -138,7 +138,7 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
 ```python
 from src.agent.risk_tags import get_risk_vector
 vec = get_risk_vector("증시 급락 어닝쇼크 VIX 급등")
-# array([0., 1., 0.], dtype=float32)  ← equity_market 감지
+# array([0., 1., 0.], dtype=float32)  ← equity_market_risk 감지
 ```
 
 장점은 사용자별 서버 상태 저장소, DB, 만료 정책 없이 단순하게 구현할 수 있고, `/optimize` 요청이 self-contained라 API 테스트가 쉽다는 점이다. 한계는 브라우저 새로고침, Streamlit 세션 만료, Streamlit 재시작 시 `risk_tags`가 사라지고, 서버에서 “이 최적화가 어떤 리서치 결과에 근거했는지” 이력을 추적할 수 없다는 점이다. 서버 이력 추적이 필요하면 후속 단계에서 `risk_context_id` 저장소를 추가한다.

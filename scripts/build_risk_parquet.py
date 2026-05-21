@@ -45,16 +45,16 @@ DATE_START = "2018-01-01"
 DATE_END   = "2025-12-31"
 
 DECAY_PERIODS: Dict[str, int] = {
-    "macro_rate":      30,
-    "equity_market":   10,
-    "geopolitical_fx": 60,
+    "macro_rate_risk":      30,
+    "equity_market_risk":   10,
+    "geopolitical_fx_risk": 60,
 }
 
 # 입력 컬럼명 (팀원 parquet의 라벨 컬럼)
 SEVERITY_COLS: Dict[str, str] = {
-    "macro_rate":      "macro_rate_risk",
-    "equity_market":   "equity_market_risk",
-    "geopolitical_fx": "geopolitical_fx_risk",
+    "macro_rate_risk":      "macro_rate_risk",
+    "equity_market_risk":   "equity_market_risk",
+    "geopolitical_fx_risk": "geopolitical_fx_risk",
 }
 
 RAW_PATHS: List[Path] = [
@@ -133,9 +133,9 @@ def compute_daily_decay(events: pd.DataFrame) -> pd.DataFrame:
     risk_geo    = np.zeros(n, dtype=np.float64)
 
     arrays = {
-        "macro_rate":      risk_macro,
-        "equity_market":   risk_equity,
-        "geopolitical_fx": risk_geo,
+        "macro_rate_risk":      risk_macro,
+        "equity_market_risk":   risk_equity,
+        "geopolitical_fx_risk": risk_geo,
     }
 
     for _, event in events.iterrows():

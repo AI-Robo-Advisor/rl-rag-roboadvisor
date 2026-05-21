@@ -1,7 +1,7 @@
 """
 금융 뉴스 텍스트에서 리스크 태그를 추출하는 모듈.
 
-RL 관측공간 연동용 3종 태그 (macro_rate / equity_market / geopolitical_fx) 와
+팀 합의 3종 태그 (macro_rate_risk / equity_market_risk / geopolitical_fx_risk) 와
 키워드 밀도 기반 연속 스코어(0.0~1.0) 반환 함수를 포함합니다.
 
 실시간 RAG 파이프라인 전용. 과거 데이터 배치 라벨링은 LLM Batch API 사용
@@ -18,13 +18,13 @@ import numpy as np
 # RL 관측공간 연동 — 3종 태그 (이문정 파트 연동 기준)
 # ─────────────────────────────────────────────
 
-RL_RISK_TAGS: List[str] = ["macro_rate", "equity_market", "geopolitical_fx"]
+RL_RISK_TAGS: List[str] = ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 
 # Exponential decay 기간 (일). build_risk_parquet.py와 동일 값 유지.
 DECAY_PERIODS: Dict[str, int] = {
-    "macro_rate":      30,   # 금리·매크로 이벤트: 영향 비교적 장기 지속
-    "equity_market":   10,   # 시장 변동성: 비교적 빠르게 정상화
-    "geopolitical_fx": 60,   # 전쟁·제재: 매우 장기 지속
+    "macro_rate_risk":      30,   # 금리·매크로 이벤트: 영향 비교적 장기 지속
+    "equity_market_risk":   10,   # 시장 변동성: 비교적 빠르게 정상화
+    "geopolitical_fx_risk": 60,   # 전쟁·제재: 매우 장기 지속
 }
 
 # ─────────────────────────────────────────────
@@ -69,9 +69,9 @@ GEO_KEYWORDS: List[str] = [
 ]
 
 _KEYWORD_MAP: Dict[str, List[str]] = {
-    "macro_rate":      MACRO_KEYWORDS,
-    "equity_market":   EQUITY_KEYWORDS,
-    "geopolitical_fx": GEO_KEYWORDS,
+    "macro_rate_risk":      MACRO_KEYWORDS,
+    "equity_market_risk":   EQUITY_KEYWORDS,
+    "geopolitical_fx_risk": GEO_KEYWORDS,
 }
 
 # ─────────────────────────────────────────────
@@ -122,7 +122,7 @@ def get_risk_vector(text: str) -> np.ndarray:
 
     Returns:
         np.ndarray shape=(3,), dtype=float32.
-        순서: [macro_rate, equity_market, geopolitical_fx].
+        순서: [macro_rate_risk, equity_market_risk, geopolitical_fx_risk].
     """
     return np.array(score_risk_vector(text), dtype=np.float32)
 
@@ -140,7 +140,7 @@ def apply_decay(severity: float, days_elapsed: int, tag: str) -> float:
     Args:
         severity: 원본 강도 (0.0~1.0).
         days_elapsed: 이벤트 발생 이후 경과 일수.
-        tag: 태그 이름 ("macro_rate" / "equity_market" / "geopolitical_fx").
+        tag: 태그 이름 ("macro_rate_risk" / "equity_market_risk" / "geopolitical_fx_risk").
 
     Returns:
         decay 적용된 강도 (0.0~1.0).
