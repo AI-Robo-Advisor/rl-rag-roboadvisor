@@ -8,7 +8,7 @@ from src.data.market_close import adjust_date_for_market_close
 def test_macro_rate_detected():
     text = "Fed 자이언트 스텝 금리 인상 달러 강세"
     tags = extract_rl_risk_tags(text)
-    assert "macro_rate" in tags
+    assert "macro_rate_risk" in tags
     macro, _, _ = score_risk_vector(text)
     assert macro > 0
 
@@ -16,7 +16,7 @@ def test_macro_rate_detected():
 def test_equity_market_detected():
     text = "삼성전자 어닝쇼크로 증시 급락 VIX 급등"
     tags = extract_rl_risk_tags(text)
-    assert "equity_market" in tags
+    assert "equity_market_risk" in tags
     _, equity, _ = score_risk_vector(text)
     assert equity > 0
 
@@ -24,7 +24,7 @@ def test_equity_market_detected():
 def test_geopolitical_detected():
     text = "러시아-우크라이나 전쟁 원/달러 환율 급등 공급망 차질"
     tags = extract_rl_risk_tags(text)
-    assert "geopolitical_fx" in tags
+    assert "geopolitical_fx_risk" in tags
     _, _, geo = score_risk_vector(text)
     assert geo > 0
 
@@ -42,7 +42,7 @@ def test_risk_vector_shape_and_dtype():
 
 
 def test_rl_risk_tags_order():
-    assert RL_RISK_TAGS == ["macro_rate", "equity_market", "geopolitical_fx"]
+    assert RL_RISK_TAGS == ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 
 
 def test_score_risk_vector_range():

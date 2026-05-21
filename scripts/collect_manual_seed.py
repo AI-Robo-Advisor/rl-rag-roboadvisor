@@ -34,7 +34,7 @@ REQUIRED_COLS = [
     "primary_tag", "reasoning", "confidence",
 ]
 VALID_RISK_VALUES = {0.0, 0.33, 0.66, 1.0}
-VALID_TAGS        = {"macro_rate", "equity_market", "geopolitical_fx", "none"}
+VALID_TAGS        = {"macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk", "none"}
 
 # sanity check — 알려진 빅 이벤트
 SANITY_CHECKS = {

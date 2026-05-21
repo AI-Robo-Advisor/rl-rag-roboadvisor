@@ -137,7 +137,7 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
   "tickers": ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"],
   "risk_profile": "balanced",
   "risk_aversion": 1.0,
-  "risk_tags": ["equity_market", "macro_rate"]
+  "risk_tags": ["equity_market_risk", "macro_rate_risk"]
 }
 ```
 
@@ -148,7 +148,7 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 | `risk_aversion` | `float` (> 0) | 아니오 | `null` | 수치형 위험 회피 계수. 설정 시 `risk_profile` 보다 우선 |
 | `risk_tags` | `list[str] \| null` | 아니오 | `null` | `/research/stream` 완료 이벤트에서 받은 RL 연동 리스크 태그. PPO ready 경로에서 `risk_vector`로 변환 |
 
-> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["equity_market", "macro_rate"]}`
+> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["equity_market_risk", "macro_rate_risk"]}`
 
 #### 응답 `200 OK`
 
@@ -287,7 +287,7 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
     "https://..."
   ],
   "reasoning_trace": "[THINK][planner] 질의 분석 시작\n[THINK][researcher] Chroma hit=5건\n...",
-  "risk_tags": ["macro_rate", "equity_market"]
+  "risk_tags": ["macro_rate_risk", "equity_market_risk"]
 }
 ```
 
@@ -298,7 +298,7 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
 | `report` | `str` | Markdown 형식 투자 분석 리포트 |
 | `sources` | `list[str]` | 참고한 뉴스 URL 목록 (없으면 GitHub 레포 URL) |
 | `reasoning_trace` | `str` | LangGraph 내부 추론 과정 (`[THINK][노드명]` 접두사) |
-| `risk_tags` | `list[str]` | 감지된 리스크 태그 (`"macro_rate"` \| `"equity_market"` \| `"geopolitical_fx"` 중 해당 항목) |
+| `risk_tags` | `list[str]` | 감지된 리스크 태그 (`"macro_rate_risk"` \| `"equity_market_risk"` \| `"geopolitical_fx_risk"` 중 해당 항목) |
 
 #### LangGraph 연동 시그니처 (강유영 제공)
 
@@ -333,7 +333,7 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 {"type":"start","question":"삼성전자 HBM 전망은?"}
 {"type":"on_chain_start","name":"planner","text":"..."}
 {"type":"on_chain_end","name":"analyst","text":"분석 완료"}
-{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["equity_market"]}
+{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["equity_market_risk"]}
 ```
 
 `complete` 이벤트 스키마는 아래 필드를 포함한다.

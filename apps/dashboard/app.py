@@ -428,7 +428,7 @@ def _mock_research(question: str) -> dict:
             "[THINK][grade_documents] 판정: 충분 — analyst 진행\n"
             "[THINK][analyst] 최종 리포트 생성 착수"
         ),
-        "risk_tags": ["equity_market"],
+        "risk_tags": ["equity_market_risk"],
     }
 
 

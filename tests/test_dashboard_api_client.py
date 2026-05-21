@@ -116,11 +116,11 @@ def test_research_complete_event_extracts_rl_risk_tags() -> None:
         "report": "r",
         "sources": [],
         "reasoning_trace": "",
-        "risk_tags": ["equity_market", "geopolitical_fx", "macro_rate_risk"],
+        "risk_tags": ["equity_market_risk", "geopolitical_fx_risk", "macro_rate_risk"],
     }
 
-    assert extract_risk_tags_from_research_event(event) == ["equity_market", "geopolitical_fx"]
-    assert risk_vector_from_tags(["equity_market", "geopolitical_fx"]) == [0.0, 1.0, 1.0]
+    assert extract_risk_tags_from_research_event(event) == ["equity_market_risk", "geopolitical_fx_risk", "macro_rate_risk"]
+    assert risk_vector_from_tags(["equity_market_risk", "geopolitical_fx_risk"]) == [0.0, 1.0, 1.0]
 
 
 def test_research_result_from_complete_event() -> None:
@@ -131,7 +131,7 @@ def test_research_result_from_complete_event() -> None:
         "report": "최종 리포트",
         "sources": ["https://example.com"],
         "reasoning_trace": "trace",
-        "risk_tags": ["equity_market", "macro_rate_risk"],
+        "risk_tags": ["equity_market_risk", "macro_rate_risk"],
     }
 
     result = research_result_from_event(event)
@@ -142,7 +142,7 @@ def test_research_result_from_complete_event() -> None:
         "report": "최종 리포트",
         "sources": ["https://example.com"],
         "reasoning_trace": "trace",
-        "risk_tags": ["equity_market"],
+        "risk_tags": ["equity_market_risk", "macro_rate_risk"],
     }
 
 
@@ -157,6 +157,6 @@ def test_research_log_formatter_filters_noisy_chat_chunks() -> None:
 
 def test_build_optimize_payload_includes_session_risk_tags() -> None:
     """Dashboard /optimize payload should carry session risk tags."""
-    payload = build_optimize_payload(1.5, ["equity_market", "geopolitical_fx"])
+    payload = build_optimize_payload(1.5, ["equity_market_risk", "geopolitical_fx_risk"])
 
-    assert payload == {"risk_aversion": 1.5, "risk_tags": ["equity_market", "geopolitical_fx"]}
+    assert payload == {"risk_aversion": 1.5, "risk_tags": ["equity_market_risk", "geopolitical_fx_risk"]}

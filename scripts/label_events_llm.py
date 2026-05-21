@@ -63,7 +63,7 @@ MAX_TOKENS  = 200
 
 # 유효 리스크 강도 값
 VALID_RISK_VALUES = {0.0, 0.33, 0.66, 1.0}
-VALID_TAGS = {"macro_rate", "equity_market", "geopolitical_fx", "none"}
+VALID_TAGS = {"macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk", "none"}
 
 # ─────────────────────────────────────────────
 # 프롬프트
@@ -118,7 +118,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 미 연준이 22년 만에 0.75%포인트 금리 인상을 단행했다. 파월 의장은 인플레이션 억제를 위해 추가 인상 가능성도 시사했다.\n"
         "출처: fred",
         '{"macro_rate_risk": 1.0, "equity_market_risk": 0.66, "geopolitical_fx_risk": 0.33, '
-        '"primary_tag": "macro_rate", "reasoning": "자이언트 스텝 금리 인상, 22년 만의 충격 이벤트", "confidence": 1.0}',
+        '"primary_tag": "macro_rate_risk", "reasoning": "자이언트 스텝 금리 인상, 22년 만의 충격 이벤트", "confidence": 1.0}',
     ),
     (
         "제목: 러시아, 우크라이나 침공 개시…전면전 돌입\n"
@@ -126,7 +126,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 러시아군이 우크라이나 전역에서 군사작전을 시작했다. 국제 유가는 배럴당 100달러를 돌파했고 안전자산 선호 심리가 확산되고 있다.\n"
         "출처: gdelt",
         '{"macro_rate_risk": 0.33, "equity_market_risk": 0.66, "geopolitical_fx_risk": 1.0, '
-        '"primary_tag": "geopolitical_fx", "reasoning": "전쟁 발발, 유가 100달러 돌파, 안전자산 선호", "confidence": 1.0}',
+        '"primary_tag": "geopolitical_fx_risk", "reasoning": "전쟁 발발, 유가 100달러 돌파, 안전자산 선호", "confidence": 1.0}',
     ),
     (
         "제목: SVB 파산에 미 증시 폭락…나스닥 -2.05%, KBW은행지수 -7.7%\n"
@@ -134,7 +134,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 실리콘밸리은행(SVB) 파산 우려로 미국 은행주가 폭락했다. 시장 전체로 패닉 매도가 확산되며 VIX는 28을 돌파했다.\n"
         "출처: gdelt",
         '{"macro_rate_risk": 0.66, "equity_market_risk": 1.0, "geopolitical_fx_risk": 0.0, '
-        '"primary_tag": "equity_market", "reasoning": "SVB 파산 패닉, 은행주 폭락, VIX 28 돌파", "confidence": 1.0}',
+        '"primary_tag": "equity_market_risk", "reasoning": "SVB 파산 패닉, 은행주 폭락, VIX 28 돌파", "confidence": 1.0}',
     ),
     (
         "제목: 9월 미국 CPI 3.7%…시장 예상치 부합\n"
@@ -142,7 +142,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 미국 9월 소비자물가지수가 전년 동월 대비 3.7% 상승해 시장 예상치에 부합했다. Fed의 추가 금리 인상 가능성은 낮아진 것으로 분석된다.\n"
         "출처: fred",
         '{"macro_rate_risk": 0.66, "equity_market_risk": 0.33, "geopolitical_fx_risk": 0.0, '
-        '"primary_tag": "macro_rate", "reasoning": "CPI 발표, 예상치 부합으로 충격 제한적", "confidence": 1.0}',
+        '"primary_tag": "macro_rate_risk", "reasoning": "CPI 발표, 예상치 부합으로 충격 제한적", "confidence": 1.0}',
     ),
     (
         "제목: 파월 의장 \"인플레이션 둔화 추세 지속 중\"\n"
@@ -150,7 +150,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 잭슨홀 미팅에서 파월 의장은 인플레이션이 둔화되고 있으나 목표치까지 갈 길이 멀다고 언급했다.\n"
         "출처: gdelt",
         '{"macro_rate_risk": 0.33, "equity_market_risk": 0.0, "geopolitical_fx_risk": 0.0, '
-        '"primary_tag": "macro_rate", "reasoning": "Fed 의장 발언, 단순 톤 코멘트", "confidence": 0.66}',
+        '"primary_tag": "macro_rate_risk", "reasoning": "Fed 의장 발언, 단순 톤 코멘트", "confidence": 0.66}',
     ),
     (
         "제목: 美, 대중 반도체 수출 추가 규제…삼성·SK 우려 확산\n"
@@ -158,7 +158,7 @@ FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
         "본문 요약: 미국이 대중국 반도체 장비 수출 규제를 대폭 강화했다. 삼성전자, SK하이닉스 등 한국 반도체 업계도 영향권에 들었으며 코스피는 1.8% 하락했다.\n"
         "출처: gdelt",
         '{"macro_rate_risk": 0.0, "equity_market_risk": 0.66, "geopolitical_fx_risk": 1.0, '
-        '"primary_tag": "geopolitical_fx", "reasoning": "반도체 수출 규제, 한국 반도체 충격, 코스피 하락", "confidence": 1.0}',
+        '"primary_tag": "geopolitical_fx_risk", "reasoning": "반도체 수출 규제, 한국 반도체 충격, 코스피 하락", "confidence": 1.0}',
     ),
     (
         "제목: 코스피, 외국인 매수에 0.4% 상승 마감\n"
@@ -190,7 +190,7 @@ RISK_TAG_SCHEMA = {
                 "macro_rate_risk":     {"type": "number", "enum": [0.0, 0.33, 0.66, 1.0]},
                 "equity_market_risk":  {"type": "number", "enum": [0.0, 0.33, 0.66, 1.0]},
                 "geopolitical_fx_risk":{"type": "number", "enum": [0.0, 0.33, 0.66, 1.0]},
-                "primary_tag":         {"type": "string", "enum": ["macro_rate", "equity_market", "geopolitical_fx", "none"]},
+                "primary_tag":         {"type": "string", "enum": ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk", "none"]},
                 "reasoning":           {"type": "string"},
                 "confidence":          {"type": "number", "enum": [0.33, 0.66, 1.0]},
             },

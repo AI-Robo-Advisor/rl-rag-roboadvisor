@@ -64,7 +64,7 @@ SERIES_CONFIG = [
         "item_code":     "0101000",
         "cycle":         "M",
         "name":          "한국은행 기준금리",
-        "tag":           "macro_rate",
+        "tag":           "macro_rate_risk",
         "processor_key": "722Y001",
     },
     {
@@ -72,7 +72,7 @@ SERIES_CONFIG = [
         "item_code":     "0000001",
         "cycle":         "D",
         "name":          "원/달러 환율",
-        "tag":           "geopolitical_fx",
+        "tag":           "geopolitical_fx_risk",
         "processor_key": "036Y001",   # processor 재사용
     },
     {
@@ -81,7 +81,7 @@ SERIES_CONFIG = [
         "item_code":     "0",
         "cycle":         "M",
         "name":          "소비자물가지수 (CPI)",
-        "tag":           "macro_rate",
+        "tag":           "macro_rate_risk",
         "processor_key": "021Y126",   # processor 재사용
     },
     {
@@ -90,7 +90,7 @@ SERIES_CONFIG = [
         "item_code":     "010200000",
         "cycle":         "D",
         "name":          "국고채 3년 수익률",
-        "tag":           "macro_rate",
+        "tag":           "macro_rate_risk",
         "processor_key": "731Y001_bond3y",
     },
     {
@@ -98,7 +98,7 @@ SERIES_CONFIG = [
         "item_code":     "010210000",
         "cycle":         "D",
         "name":          "국고채 10년 수익률",
-        "tag":           "macro_rate",
+        "tag":           "macro_rate_risk",
         "processor_key": "731Y001_bond10y",
     },
     {
@@ -106,7 +106,7 @@ SERIES_CONFIG = [
         "item_code":     "0001000",
         "cycle":         "D",
         "name":          "KOSPI",
-        "tag":           "equity_market",
+        "tag":           "equity_market_risk",
         "processor_key": "802Y001",
     },
 ]
@@ -268,7 +268,7 @@ def process_base_rate(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "macro_rate_risk":     severity,
                     "equity_market_risk":  round(severity * 0.5, 2),
                     "geopolitical_fx_risk": round(severity * 0.2, 2),
-                    "primary_tag":         "macro_rate",
+                    "primary_tag":         "macro_rate_risk",
                     "reasoning":           f"기준금리 {diff:+.2f}%p 변경",
                     "confidence":          1.0,
                 })
@@ -316,7 +316,7 @@ def process_usdkrw(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "macro_rate_risk":     round(severity * 0.3, 2),
                 "equity_market_risk":  round(severity * 0.3, 2),
                 "geopolitical_fx_risk": severity,
-                "primary_tag":         "geopolitical_fx",
+                "primary_tag":         "geopolitical_fx_risk",
                 "reasoning":           f"원/달러 {change_pct:+.2f}% 급변",
                 "confidence":          1.0,
             })
@@ -362,7 +362,7 @@ def process_cpi(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "macro_rate_risk":     severity,
                 "equity_market_risk":  round(severity * 0.4, 2),
                 "geopolitical_fx_risk": round(severity * 0.2, 2),
-                "primary_tag":         "macro_rate",
+                "primary_tag":         "macro_rate_risk",
                 "reasoning":           f"CPI YoY {yoy:.1f}%",
                 "confidence":          1.0,
             })
@@ -408,7 +408,7 @@ def process_bond_3y(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "macro_rate_risk":      severity,
                 "equity_market_risk":   0.0,
                 "geopolitical_fx_risk": 0.0,
-                "primary_tag":          "macro_rate",
+                "primary_tag":          "macro_rate_risk",
                 "reasoning":            f"국고채 3년 {diff_bp:+.1f}bp",
                 "confidence":           1.0,
             })
@@ -454,7 +454,7 @@ def process_bond_10y(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "macro_rate_risk":      severity,
                 "equity_market_risk":   round(severity * 0.3, 2),
                 "geopolitical_fx_risk": 0.0,
-                "primary_tag":          "macro_rate",
+                "primary_tag":          "macro_rate_risk",
                 "reasoning":            f"국고채 10년 {diff_bp:+.1f}bp",
                 "confidence":           1.0,
             })
@@ -498,7 +498,7 @@ def process_kospi(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "macro_rate_risk":      0.0,
                 "equity_market_risk":   severity,
                 "geopolitical_fx_risk": round(severity * 0.3, 2),
-                "primary_tag":          "equity_market",
+                "primary_tag":          "equity_market_risk",
                 "reasoning":            f"KOSPI {change_pct:+.2f}%",
                 "confidence":           1.0,
             })
