@@ -39,9 +39,9 @@ def test_feature_names_risk_tags_at_end():
     """마지막 3개 피처명이 RISK_FEATURE_NAMES와 일치하는지 검증합니다."""
     names = get_feature_names(TICKERS_10, lookback=30)
     assert names[-3:] == RISK_FEATURE_NAMES
-    assert names[-3] == "risk_규제변경"
-    assert names[-2] == "risk_실적쇼크"
-    assert names[-1] == "risk_급등락"
+    assert names[-3] == "risk_macro"
+    assert names[-2] == "risk_equity"
+    assert names[-1] == "risk_geo"
 
 
 def test_feature_names_returns_window_oldest_first():
@@ -73,7 +73,7 @@ def test_feature_names_concat_order():
     # MACD_signal 블록 시작
     assert names[rsi_end].endswith("_MACD_signal")
     # risk 블록 시작
-    assert names[macd_end] == "risk_규제변경"
+    assert names[macd_end] == "risk_macro"
 
 
 def test_feature_names_all_tickers_present_in_returns():
