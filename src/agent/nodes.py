@@ -41,7 +41,7 @@ class AgentState(TypedDict):
         context: Researcher가 만든 RAG 컨텍스트 문자열.
         documents: 검색 문서 ``{"content", "metadata"}`` 리스트.
         risk_tags: ``risk_tags`` 모듈 추출 태그 (RAG 일반 태그).
-        rl_risk_tags: RL 관측공간 연동용 3종 태그 (규제변경·실적쇼크·급등락).
+        rl_risk_tags: RL 관측공간 연동용 3종 태그 (macro_rate·equity_market·geopolitical_fx).
         distances: Chroma 거리 목록(문서 순). 없으면 빈 리스트.
         retry_count: Self-Correction 재검색 횟수.
         needs_research_retry: ``True``면 다음 노드가 researcher.
