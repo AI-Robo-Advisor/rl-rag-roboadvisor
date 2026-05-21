@@ -520,8 +520,14 @@ def _predict_ppo_weights(
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
 
-    from src.agent.risk_tags import get_risk_vector
+    from src.agent.risk_tags import RL_RISK_TAGS
     from src.rl.env import PortfolioEnv
+
+    risk_tags_set = set(risk_tags or [])
+    risk_vector = np.array(
+        [1.0 if tag in risk_tags_set else 0.0 for tag in RL_RISK_TAGS],
+        dtype=np.float32,
+    )
 
     model = _load_ppo_model()
     env = PortfolioEnv(
@@ -529,7 +535,7 @@ def _predict_ppo_weights(
         features_df=features,
         lookback=30,
         reward_type="sharpe",
-        risk_vector=get_risk_vector(risk_tags or []),
+        risk_vector=risk_vector,
     )
     obs, _ = env.reset()
     env.current_step = len(env.features_df) - 1
@@ -1108,28 +1114,18 @@ def _can_load_data_files() -> bool:
 
 
 def _infer_risk_tags(question: str) -> list[str]:
-    """Infer MVP risk tags from a Korean or English question."""
-    lowered = question.lower()
-    tags: list[str] = []
-    if any(keyword in lowered for keyword in ("규제", "regulation", "policy")):
-        tags.append("규제변경")
-    if any(keyword in lowered for keyword in ("실적", "earnings", "shock")):
-        tags.append("실적쇼크")
-    if any(
-        keyword in lowered for keyword in ("급등", "급락", "변동", "금리", "rate", "volatility")
-    ):
-        tags.append("급등락")
-    return tags or ["급등락"]
+    """Infer RL risk tags from a Korean or English question."""
+    from src.agent.risk_tags import RL_RISK_TAGS, extract_rl_risk_tags
+    return extract_rl_risk_tags(question) or [RL_RISK_TAGS[1]]  # fallback: equity_market
 
 
 def _normalize_rl_risk_tags(tags: Any) -> list[str]:
     """Keep only tags that belong to the fixed RL observation vector."""
     try:
         from src.agent.risk_tags import RL_RISK_TAGS
+        allowed = set(RL_RISK_TAGS)
     except Exception:
-        RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
-
-    allowed = set(RL_RISK_TAGS)
+        return []
     return [str(tag) for tag in tags or [] if str(tag) in allowed]
 
 
