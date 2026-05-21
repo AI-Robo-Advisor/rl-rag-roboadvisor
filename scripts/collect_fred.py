@@ -5,15 +5,11 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
 from fredapi import Fred
 
 START_DATE = "2018-01-01"
 END_DATE = "2025-12-31"
 OUTPUT_PATH = Path("data/raw/fred/fred_events_2018_2025.parquet")
-
-
-load_dotenv()
 
 
 def get_fred_client() -> Fred:
@@ -172,7 +168,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=severity,
                 equity_market_risk=severity * 0.5,
                 geopolitical_fx_risk=severity * 0.3,
-                primary_tag="macro_rate",
+                primary_tag="macro_rate_risk",
                 reasoning=f"Fed rate change {diff:+.2f}%p",
             )
         )
@@ -190,10 +186,13 @@ def collect_fred_events() -> pd.DataFrame:
         if severity <= 0:
             continue
 
+        # CPIAUCSL 인덱스는 관측월 기준(예: 2022-06-01)이나
+        # 실제 BLS 발표일은 ~6주 후. 보수적 lag로 +1개월 적용.
+        release_date = date + pd.DateOffset(months=1)
         events.append(
             make_event(
                 event_id=f"fred-{date.strftime('%Y%m%d')}-cpi",
-                date=date,
+                date=release_date,
                 title=f"US CPI YoY {yoy:.1f}%",
                 summary=f"US Consumer Price Index year-over-year change was {yoy:.2f}%.",
                 url="https://fred.stlouisfed.org/series/CPIAUCSL",
@@ -201,7 +200,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=severity,
                 equity_market_risk=severity * 0.3,
                 geopolitical_fx_risk=0.0,
-                primary_tag="macro_rate",
+                primary_tag="macro_rate_risk",
                 reasoning=f"CPI YoY {yoy:.1f}%",
             )
         )
@@ -219,10 +218,13 @@ def collect_fred_events() -> pd.DataFrame:
         if severity <= 0:
             continue
 
+        # UNRATE 인덱스는 관측월 기준. 실제 BLS 발표일은 다음 달 초.
+        # 보수적 lag로 +1개월 적용.
+        release_date = date + pd.DateOffset(months=1)
         events.append(
             make_event(
                 event_id=f"fred-{date.strftime('%Y%m%d')}-unrate",
-                date=date,
+                date=release_date,
                 title=f"US Unemployment Rate {diff:+.1f}%p",
                 summary=(
                     f"US unemployment rate changed by {diff:+.1f}%p "
@@ -237,7 +239,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=0.0,
                 equity_market_risk=severity,
                 geopolitical_fx_risk=0.0,
-                primary_tag="equity_market",
+                primary_tag="equity_market_risk",
                 reasoning=f"Unemployment rate change {diff:+.1f}%p",
             )
         )
@@ -263,7 +265,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=severity,
                 equity_market_risk=severity * 0.4,
                 geopolitical_fx_risk=0.0,
-                primary_tag="macro_rate",
+                primary_tag="macro_rate_risk",
                 reasoning=f"10Y Treasury yield change {diff_bp:+.0f}bp",
             )
         )
@@ -289,7 +291,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=0.0,
                 equity_market_risk=severity * 0.3,
                 geopolitical_fx_risk=severity,
-                primary_tag="geopolitical_fx",
+                primary_tag="geopolitical_fx_risk",
                 reasoning=f"USD/KRW daily change {pct:+.2f}%",
             )
         )
@@ -317,7 +319,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=0.0,
                 equity_market_risk=severity,
                 geopolitical_fx_risk=0.0,
-                primary_tag="equity_market",
+                primary_tag="equity_market_risk",
                 reasoning=f"VIX spike to {vix.loc[date]:.1f}",
             )
         )
@@ -343,7 +345,7 @@ def collect_fred_events() -> pd.DataFrame:
                 macro_rate_risk=0.0,
                 equity_market_risk=severity * 0.3,
                 geopolitical_fx_risk=severity,
-                primary_tag="geopolitical_fx",
+                primary_tag="geopolitical_fx_risk",
                 reasoning=f"WTI oil daily change {pct:+.1f}%",
             )
         )
@@ -436,5 +438,8 @@ def sanity_check(df: pd.DataFrame) -> None:
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
     fred_events = collect_fred_events()
     sanity_check(fred_events)
+    
