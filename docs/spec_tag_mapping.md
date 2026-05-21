@@ -36,7 +36,12 @@ obs = [
   risk_equity,   # obs[-2] — equity_market_risk decay 스코어 (0~1)
   risk_geo,      # obs[-1] — geopolitical_fx_risk decay 스코어 (0~1)
 ]
-obs_dim = (lookback + 3) * n_assets + 3  →  (30+3)*10+3 = 333
+obs_dim = (n_assets * lookback)  # 수익률:        10 * 30 = 300
+        + n_assets               # 포트폴리오 비중:      10
+        + n_assets               # RSI:                  10
+        + n_assets               # MACD signal:          10
+        + 3                      # risk vector:           3
+        # = 333
 ```
 
 `env.set_risk_vector(np.array([risk_macro, risk_equity, risk_geo], dtype=np.float32))`
