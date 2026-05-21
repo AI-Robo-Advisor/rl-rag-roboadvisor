@@ -248,9 +248,13 @@ def process_base_rate(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             severity = label_base_rate_change(diff)
             if severity > 0:
                 direction = "인상" if diff > 0 else "인하"
+                # 월말로 이동: 금통위 결정일(월중)보다 앞선 날짜에 이벤트가 노출되는
+                # look-ahead bias를 방지. 실제 결정일을 모르므로 해당 월 내 최대값인
+                # 월말을 사용해 보수적으로 처리.
+                event_date = date + pd.offsets.MonthEnd(0)
                 records.append({
-                    "event_id":            f"ecos-{date.strftime('%Y%m%d')}-baserate",
-                    "date":                date.date(),
+                    "event_id":            f"ecos-{event_date.strftime('%Y%m%d')}-baserate",
+                    "date":                event_date.date(),
                     "source":              "ecos",
                     "title":               f"한국은행 기준금리 {direction} {abs(diff):.2f}%p",
                     "summary":             (
@@ -342,9 +346,12 @@ def process_cpi(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         yoy = (curr - prev) / prev * 100
         severity = label_cpi_yoy(yoy)
         if severity > 0:
+            # 익월 1일로 이동: 한국 CPI는 해당 월 데이터를 익월 초(~4일)에 발표하므로
+            # 당월 1일 기준은 약 33일 이른 look-ahead bias가 발생함.
+            event_date = date + pd.DateOffset(months=1)
             records.append({
-                "event_id":            f"ecos-{date.strftime('%Y%m%d')}-cpi",
-                "date":                date.date(),
+                "event_id":            f"ecos-{event_date.strftime('%Y%m%d')}-cpi",
+                "date":                event_date.date(),
                 "source":              "ecos",
                 "title":               f"한국 CPI YoY {yoy:.1f}% (고인플레)",
                 "summary":             f"소비자물가 전년 동월 대비 {yoy:.1f}% 상승",
