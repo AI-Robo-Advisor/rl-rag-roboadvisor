@@ -34,6 +34,7 @@ GDELT_COLUMNS = [
 
 GDELT_COUNTRY_CODES = ("USA", "CHN", "KOR", "RUS", "UKR", "EUR", "JPN", "TWN")
 GDELT_EVENT_PREFIXES = ("03", "04", "13", "14", "17", "19")
+GDELT_TABLE = "`gdelt-bq.gdeltv2.events_partitioned`"
 
 
 @dataclass(frozen=True)
@@ -69,15 +70,18 @@ def build_gdelt_query(
     """
     country_codes = _quote_sql_values(GDELT_COUNTRY_CODES)
     event_filters = "\n        OR ".join(
-        f"CAST(EventCode AS STRING) LIKE '{prefix}%'" for prefix in GDELT_EVENT_PREFIXES
+        f"LPAD(CAST(EventCode AS STRING), 3, '0') LIKE '{prefix}%'"
+        for prefix in GDELT_EVENT_PREFIXES
     )
     limit_clause = f"\nLIMIT {int(limit)}" if limit is not None else ""
 
     return f"""
 WITH filtered AS (
     SELECT
+        GLOBALEVENTID,
         SQLDATE,
         EventCode,
+        LPAD(CAST(EventCode AS STRING), 3, '0') AS NormalizedEventCode,
         EventBaseCode,
         Actor1CountryCode,
         Actor1Name,
@@ -88,11 +92,13 @@ WITH filtered AS (
         AvgTone,
         SOURCEURL,
         ROW_NUMBER() OVER (
-            PARTITION BY SQLDATE, EventCode
-            ORDER BY NumMentions DESC, AvgTone ASC, SOURCEURL
+            PARTITION BY SQLDATE, LPAD(CAST(EventCode AS STRING), 3, '0')
+            ORDER BY NumMentions DESC, AvgTone ASC, SOURCEURL, GLOBALEVENTID
         ) AS event_rank
-    FROM `gdelt-bq.gdeltv2.events`
-    WHERE SQLDATE BETWEEN CAST(FORMAT_DATE('%Y%m%d', DATE('{start_date}')) AS INT64)
+    FROM {GDELT_TABLE}
+    WHERE _PARTITIONTIME >= TIMESTAMP('{start_date}')
+      AND _PARTITIONTIME < TIMESTAMP(DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY))
+      AND SQLDATE BETWEEN CAST(FORMAT_DATE('%Y%m%d', DATE('{start_date}')) AS INT64)
       AND CAST(FORMAT_DATE('%Y%m%d', DATE('{end_date}')) AS INT64)
       AND (
           Actor1CountryCode IN ({country_codes})
@@ -109,7 +115,7 @@ SELECT
         'gdelt-',
         FORMAT_DATE('%Y%m%d', PARSE_DATE('%Y%m%d', CAST(SQLDATE AS STRING))),
         '-',
-        CAST(EventCode AS STRING),
+        NormalizedEventCode,
         '-',
         CAST(event_rank AS STRING)
     ) AS event_id,
@@ -120,7 +126,7 @@ SELECT
         ' - ',
         IFNULL(Actor2Name, ''),
         ' (Event ',
-        CAST(EventCode AS STRING),
+        NormalizedEventCode,
         ')'
     ) AS title,
     CONCAT(
@@ -134,7 +140,9 @@ SELECT
     SOURCEURL AS url,
     'en' AS language,
     TO_JSON_STRING(STRUCT(
+        GLOBALEVENTID,
         EventCode,
+        NormalizedEventCode,
         EventBaseCode,
         GoldsteinScale,
         NumMentions,

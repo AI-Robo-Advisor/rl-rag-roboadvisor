@@ -45,13 +45,25 @@ def _sample_gdelt_df() -> pd.DataFrame:
 def test_build_gdelt_query_contains_required_safety_filters():
     query = build_gdelt_query("2018-01-01", "2025-12-31", limit=100)
 
+    assert "FROM `gdelt-bq.gdeltv2.events_partitioned`" in query
+    assert "_PARTITIONTIME >= TIMESTAMP('2018-01-01')" in query
+    assert "_PARTITIONTIME < TIMESTAMP(DATE_ADD(DATE('2025-12-31'), INTERVAL 1 DAY))" in query
     assert "SQLDATE BETWEEN CAST(FORMAT_DATE('%Y%m%d', DATE('2018-01-01')) AS INT64)" in query
     assert "DATE('2025-12-31')" in query
     assert "NumMentions >= 50" in query
     assert "GoldsteinScale < -3.0" in query
     assert "Actor1CountryCode IN" in query
-    assert "CAST(EventCode AS STRING) LIKE '19%'" in query
+    assert "LPAD(CAST(EventCode AS STRING), 3, '0') LIKE '03%'" in query
+    assert "LPAD(CAST(EventCode AS STRING), 3, '0') LIKE '19%'" in query
     assert "LIMIT 100" in query
+
+
+def test_build_gdelt_query_has_deterministic_event_rank_ordering():
+    query = build_gdelt_query("2018-01-01", "2025-12-31", limit=100)
+
+    assert "PARTITION BY SQLDATE, LPAD(CAST(EventCode AS STRING), 3, '0')" in query
+    assert "ORDER BY NumMentions DESC, AvgTone ASC, SOURCEURL, GLOBALEVENTID" in query
+    assert "GLOBALEVENTID" in query
 
 
 def test_normalize_gdelt_events_keeps_common_schema():
@@ -124,7 +136,7 @@ def test_collect_gdelt_events_runs_query_and_writes_parquet(tmp_path, monkeypatc
 
     class FakeClient:
         def query(self, query):
-            assert "gdelt-bq.gdeltv2.events" in query
+            assert "gdelt-bq.gdeltv2.events_partitioned" in query
             return FakeQueryJob()
 
     events = collect_gdelt_events(
