@@ -15,9 +15,9 @@ data/processed/risk_vectors_daily.parquet
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | `date` | datetime64[ns] | 2018-01-01 ~ 2025-12-31 (매일, 비거래일 포함) |
-| `risk_macro` | float64 | macro_rate Decay 스코어 (0.0~1.0) |
-| `risk_equity` | float64 | equity_market Decay 스코어 (0.0~1.0) |
-| `risk_geo` | float64 | geopolitical_fx Decay 스코어 (0.0~1.0) |
+| `risk_macro` | float64 | macro_rate_risk Decay 스코어 (0.0~1.0) |
+| `risk_equity` | float64 | equity_market_risk Decay 스코어 (0.0~1.0) |
+| `risk_geo` | float64 | geopolitical_fx_risk Decay 스코어 (0.0~1.0) |
 
 ---
 
