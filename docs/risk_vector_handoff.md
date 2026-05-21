@@ -26,6 +26,7 @@ data/processed/risk_vectors_daily.parquet
 ```python
 import numpy as np
 import pandas as pd
+import logging
 
 # ── 학습 시작 전 1회 로드 ──────────────────────────────────────
 risk_df = pd.read_parquet("data/processed/risk_vectors_daily.parquet")
@@ -37,13 +38,28 @@ def get_risk_vector(date: pd.Timestamp) -> np.ndarray:
     """해당 날짜의 risk vector를 반환합니다. 데이터 없으면 zeros."""
     if date in risk_df.index:
         row = risk_df.loc[date]
-        return np.array([row["risk_macro"], row["risk_equity"], row["risk_geo"]],
-                        dtype=np.float32)
+        return np.array(
+            [row["risk_macro"], row["risk_equity"], row["risk_geo"]],
+            dtype=np.float32
+        )
+    # 날짜 범위 내인데 누락된 경우와 범위 밖을 구분해서 경고
+    if risk_df.index.min() <= date <= risk_df.index.max():
+        logging.warning(
+            f"[risk_vector] {date.date()} is within range but missing in parquet. "
+            f"Returning zeros. Run scripts/build_risk_parquet.py to rebuild."
+        )
     return np.zeros(3, dtype=np.float32)
 
-# ── env 주입 (이미 env.py에 set_risk_vector 있음) ──────────────
-# 에피소드 루프 내에서:
-current_date = returns_df.index[current_step]   # 현재 거래일
+# ── env 주입 ─────────────────────────────────────────────────
+# ❶ 에피소드 시작(reset) 시: 초기 날짜의 risk_vector를 먼저 set
+obs, info = env.reset()
+initial_date = returns_df.index[current_step]   # 윈도우 시작일
+env.set_risk_vector(get_risk_vector(initial_date))
+# ※ reset() 후 set_risk_vector()를 호출해야 첫 스텝 obs에 반영됨
+#   순서가 바뀌면 첫 스텝은 이전 에피소드 값 또는 zeros가 들어감
+
+# ❷ 에피소드 루프 내: 매 거래일마다 갱신 후 step
+current_date = returns_df.index[current_step]
 env.set_risk_vector(get_risk_vector(current_date))
 obs, reward, done, truncated, info = env.step(action)
 ```
@@ -93,6 +109,8 @@ python scripts/build_risk_parquet.py
 
 ## 6. 확인 사항
 
+- [ ] `env.reset()` 직후 `env.set_risk_vector(get_risk_vector(initial_date))` 호출하는지
+- [ ] `get_risk_vector()` warning 로그가 학습 중 출력될 경우 `build_risk_parquet.py` 재실행
 - [ ] `get_risk_vector()` 함수를 에피소드 스텝 루프 내부에서 매 거래일마다 호출하는지
 - [ ] `env.set_risk_vector(vec)` 호출 후 `env.step()` 순서인지 (관측에 반영되려면 step 전에 set해야 함)
 - [ ] W1 재학습 시 학습 구간(2018~2021) risk_vector가 0이 아닌지 확인:  
