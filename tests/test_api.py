@@ -1,8 +1,8 @@
 """FastAPI Sprint 2 endpoint contract tests."""
 
+import json
 import math
 import time
-import json
 from concurrent.futures import TimeoutError
 
 import pandas as pd
@@ -74,7 +74,7 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
         tickers: list[str],
         risk_tags: list[str] | None = None,
     ) -> dict[str, float]:
-        assert risk_tags == ["실적쇼크"]
+        assert risk_tags == ["equity_market_risk"]
         return {tickers[0]: 0.7, tickers[1]: 0.3}
 
     monkeypatch.setattr(
@@ -83,7 +83,7 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
 
     response = client.post(
         "/optimize",
-        json={"tickers": ["SPY", "QQQ"], "risk_tags": ["실적쇼크"]},
+        json={"tickers": ["SPY", "QQQ"], "risk_tags": ["equity_market_risk"]},
     )
 
     assert response.status_code == 200
@@ -136,7 +136,9 @@ def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
     monkeypatch.setattr(api_services, "_load_ppo_model", lambda: FakeModel())
     monkeypatch.setattr(rl_env, "PortfolioEnv", FakeEnv)
 
-    weights = api_services._predict_ppo_weights(["SPY", "QQQ"], ["실적쇼크", "급등락"])
+    weights = api_services._predict_ppo_weights(
+        ["SPY", "QQQ"], ["equity_market_risk", "geopolitical_fx_risk"]
+    )
 
     assert weights == {"SPY": 0.8, "QQQ": 0.2}
     assert captured["risk_vector"].tolist() == [0.0, 1.0, 1.0]
@@ -273,7 +275,7 @@ def test_research_falls_back_when_graph_raises(monkeypatch) -> None:
     payload = response.json()
     assert payload["status"] in {"ready", "fallback"}
     assert payload["report"]
-    assert payload["risk_tags"] == ["급등락"]
+    assert payload["risk_tags"] == ["macro_rate_risk"]
 
 
 def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> None:
@@ -286,7 +288,7 @@ def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> N
             "response": "LangGraph 분석 완료",
             "sources": ["https://example.com/langgraph"],
             "reasoning_trace": "[THINK][analyst] 완료",
-            "rl_risk_tags": ["급등락"],
+            "rl_risk_tags": ["equity_market_risk"],
         }
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
@@ -300,7 +302,7 @@ def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> N
     assert payload["status"] == "ready"
     assert payload["report"] == "LangGraph 분석 완료"
     assert payload["sources"] == ["https://example.com/langgraph"]
-    assert payload["risk_tags"] == ["급등락"]
+    assert payload["risk_tags"] == ["equity_market_risk"]
     assert calls == ["SPY와 TLT 배분 리스크는?"]
 
 
@@ -318,7 +320,7 @@ def test_research_sync_falls_back_when_graph_times_out(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "fallback"
-    assert payload["risk_tags"] == ["실적쇼크"]
+    assert payload["risk_tags"] == ["equity_market_risk"]
     assert isinstance(payload["elapsed_ms"], float)
     assert payload["timed_out"] is True
 
@@ -332,7 +334,7 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {
             "event": "on_chain_end",
             "name": "analyst",
-            "data": {"output": {"response": "분석 완료", "risk_tags": ["급등락"]}},
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["macro_rate_risk"]}},
         }
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
@@ -357,7 +359,7 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert '"type":"on_chain_end"' in lines[2]
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
-    assert "급등락" in lines[-1]
+    assert "macro_rate_risk" in lines[-1]
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:
@@ -377,7 +379,7 @@ def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None
     assert elapsed < 5.0
     assert lines
     assert '"type":"fallback"' in lines[-1]
-    assert "실적쇼크" in lines[-1]
+    assert "equity_market_risk" in lines[-1]
 
 
 def test_backtest_returns_metrics_and_anova_results() -> None:

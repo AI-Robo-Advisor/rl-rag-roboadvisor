@@ -22,14 +22,14 @@ import pandas as pd
 from apps.api.config import settings
 from apps.api.schemas import (
     AnovaResult,
-    BacktestWindow,
     BacktestResponse,
+    BacktestWindow,
     ExplainResponse,
     FeatureContribution,
     InteractionStats,
     OptimizeResponse,
-    ReturnSeries,
     ResearchResponse,
+    ReturnSeries,
     RiskProfile,
     SafeguardState,
     StrategyEffectStats,
@@ -1108,18 +1108,75 @@ def _can_load_data_files() -> bool:
 
 
 def _infer_risk_tags(question: str) -> list[str]:
-    """Infer MVP risk tags from a Korean or English question."""
+    """Infer asset-impact risk tags from a Korean or English question."""
     lowered = question.lower()
     tags: list[str] = []
-    if any(keyword in lowered for keyword in ("규제", "regulation", "policy")):
-        tags.append("규제변경")
-    if any(keyword in lowered for keyword in ("실적", "earnings", "shock")):
-        tags.append("실적쇼크")
     if any(
-        keyword in lowered for keyword in ("급등", "급락", "변동", "금리", "rate", "volatility")
+        keyword in lowered
+        for keyword in (
+            "금리",
+            "기준금리",
+            "연준",
+            "fomc",
+            "fed",
+            "cpi",
+            "ppi",
+            "인플레이션",
+            "물가",
+            "국채",
+            "달러",
+            "rate",
+            "inflation",
+            "treasury",
+        )
     ):
-        tags.append("급등락")
-    return tags or ["급등락"]
+        tags.append("macro_rate_risk")
+    if any(
+        keyword in lowered
+        for keyword in (
+            "증시",
+            "주가",
+            "코스피",
+            "경기침체",
+            "리세션",
+            "실적",
+            "어닝",
+            "vix",
+            "변동성",
+            "급락",
+            "폭락",
+            "stock",
+            "earnings",
+            "recession",
+            "volatility",
+        )
+    ):
+        tags.append("equity_market_risk")
+    if any(
+        keyword in lowered
+        for keyword in (
+            "지정학",
+            "전쟁",
+            "미중",
+            "관세",
+            "제재",
+            "공급망",
+            "환율",
+            "원/달러",
+            "원화",
+            "원유",
+            "중국",
+            "geopolitical",
+            "war",
+            "tariff",
+            "sanction",
+            "supply chain",
+            "fx",
+            "oil",
+        )
+    ):
+        tags.append("geopolitical_fx_risk")
+    return tags
 
 
 def _normalize_rl_risk_tags(tags: Any) -> list[str]:
@@ -1127,7 +1184,7 @@ def _normalize_rl_risk_tags(tags: Any) -> list[str]:
     try:
         from src.agent.risk_tags import RL_RISK_TAGS
     except Exception:
-        RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
+        RL_RISK_TAGS = ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 
     allowed = set(RL_RISK_TAGS)
     return [str(tag) for tag in tags or [] if str(tag) in allowed]
