@@ -8,7 +8,7 @@ class PortfolioEnv(gym.Env):
 
     로그수익률 기반의 자산 수익률을 사용하며, 행동값을 포트폴리오 비중으로
     정규화한 뒤 거래비용, 슬리피지, MDD Safe-Guard를 반영합니다.
-    RAG 기반 리스크 태그 벡터(규제변경·실적쇼크·급등락)를 관측공간에 포함합니다.
+    RAG 기반 리스크 태그 벡터(macro_rate·equity_market·geopolitical_fx)를 관측공간에 포함합니다.
     """
     def __init__(
         self,
@@ -29,7 +29,7 @@ class PortfolioEnv(gym.Env):
             reward_type: 사용할 보상 함수 유형입니다. "return", "sharpe", "mdd" 중 하나입니다.
             lambda_mdd: MDD 페널티 보상에서 사용할 MDD 가중치입니다.
             volatility_window: Sharpe 보상 계산에 사용할 변동성 추정 윈도우입니다.
-            risk_vector: RAG 리스크 태그 벡터입니다. shape=(3,), 순서: [규제변경, 실적쇼크, 급등락].
+            risk_vector: RAG 리스크 태그 벡터입니다. shape=(3,), 순서: [macro_rate, equity_market, geopolitical_fx].
                 None이면 np.zeros(3, dtype=np.float32)로 초기화됩니다.
 
         Raises:
@@ -70,7 +70,7 @@ class PortfolioEnv(gym.Env):
         self.peak_portfolio_value = self.initial_portfolio_value
         self.current_mdd = 0.0
 
-        # RAG 리스크 태그 벡터: [규제변경, 실적쇼크, 급등락] (shape=3)
+        # RAG 리스크 태그 벡터: [macro_rate, equity_market, geopolitical_fx] (shape=3)
         if risk_vector is None:
             self.risk_vector = np.zeros(3, dtype=np.float32)
         else:
@@ -102,7 +102,7 @@ class PortfolioEnv(gym.Env):
         """RAG 리스크 태그 벡터를 갱신합니다.
 
         Args:
-            risk_vector: shape=(3,) 배열. 순서: [규제변경, 실적쇼크, 급등락].
+            risk_vector: shape=(3,) 배열. 순서: [macro_rate, equity_market, geopolitical_fx].
 
         Raises:
             ValueError: risk_vector의 shape이 (3,)이 아닌 경우 발생합니다.

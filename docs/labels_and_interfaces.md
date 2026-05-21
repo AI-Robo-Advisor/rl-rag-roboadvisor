@@ -73,42 +73,46 @@ date,regime
 
 ### 2-1. 일반 리스크 태그 (RAG 리포트용)
 
-**정의 위치**: `src/agent/risk_tags.py` — `RISK_KEYWORD_MAP`  
-**활용**: `POST /research` 응답의 `risk_tags` 필드
+**정의 위치**: `src/agent/risk_tags.py` — `extract_risk_tags(text)`  
+**활용**: `POST /research` 응답의 `risk_tags` 필드  
+**반환 형식**: score > 0인 축만 포함, `_risk` 접미사 포함  
+> **API 필드 관계**: JSON 키는 `risk_tags`이나, LangGraph 정상 경로에서는 `rl_risk_tags`(`extract_rl_risk_tags` 기준 — `macro_rate` 등 접미사 없음)가 우선 채워짐. `services.py:124` 참고.
 
-| 태그 | 심각도 | 트리거 키워드 (예시) |
-|------|--------|---------------------|
-| `지정학_리스크` | HIGH | 지정학, 전쟁, 분쟁, 제재 |
-| `경기침체_리스크` | HIGH | 침체, 리세션, 경기둔화 |
-| `신용_리스크` | HIGH | 부도, 파산, 디폴트 |
-| `금리_리스크` | MEDIUM | 금리, 기준금리 |
-| `인플레이션_리스크` | MEDIUM | 인플레이션, 물가 |
-| `유동성_리스크` | MEDIUM | 유동성 |
-| `시장_리스크` | MEDIUM | 하락, 폭락, 급락 |
-| `환율_리스크` | LOW | 환율, 달러 |
-| `규제_리스크` | LOW | 규제, 법안 |
-| `불확실성_리스크` | LOW | 불확실성 |
-| `변동성_리스크` | LOW | 변동성 |
+| 반환값 | 설명 |
+|--------|------|
+| `macro_rate_risk` | 금리·매크로 이벤트 감지 시 |
+| `equity_market_risk` | 증시 급락·경기침체 이벤트 감지 시 |
+| `geopolitical_fx_risk` | 지정학·환율·무역 이벤트 감지 시 |
+
+> **구 태그 (`RISK_KEYWORD_MAP`) 삭제됨**: `지정학_리스크`, `경기침체_리스크` 등 한국어 심각도 태그는  
+> Sprint 3에서 3축 체계로 통일되며 제거되었다. `RISK_KEYWORD_MAP` 상수는 코드에 존재하지 않는다.
 
 ### 2-2. RL 관측공간 연동 태그 (3종 고정)
 
 **정의 위치**: `src/agent/risk_tags.py` — `RL_RISK_TAGS`  
 **활용**: `PortfolioEnv` 관측공간 벡터 (이문정 담당)  
-**변경 시**: 이문정과 반드시 사전 협의 필요 (env.py 관측공간 차원 변경 연동)
+**변경 시**: 이문정과 반드시 사전 협의 필요 (env.py 관측공간 차원 변경 연동)  
+**일별 decay 값**: `data/processed/risk_vectors_daily.parquet` — `build_risk_parquet.py`로 생성
 
-| 순서 | 태그 | 트리거 키워드 |
-|------|------|--------------|
-| 0 | `규제변경` | 규제변경, 규정 변경, 규제 강화, 법 개정, 금융 규제, 규제 개편 |
-| 1 | `실적쇼크` | 실적쇼크, 어닝쇼크, 실적 충격, 실적 부진, 영업손실 |
-| 2 | `급등락` | 급등락, 급등, 급락, 폭등, 폭락, 급변동 |
+| 순서 | 태그 | obs 인덱스 | 커버하는 이벤트 유형 |
+|------|------|-----------|-------------------|
+| 0 | `macro_rate_risk` | obs[-3] | 금리 인상·인하, FOMC, CPI, 국채금리 변동, 한국은행 기준금리 |
+| 1 | `equity_market_risk` | obs[-2] | 증시 급락, 경기침체, VIX 급등, 어닝쇼크, KOSPI 급락 |
+| 2 | `geopolitical_fx_risk` | obs[-1] | 전쟁, 관세, 수출 규제, 공급망 충격, 환율 급변 |
 
 **벡터 변환 예시**:
 ```python
 from src.agent.risk_tags import get_risk_vector, extract_rl_risk_tags
 
-tags = extract_rl_risk_tags("금융당국이 규제를 강화했다.")  # → ["규제변경"]
-vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
-#                                         규제변경 실적쇼크 급등락
+tags = extract_rl_risk_tags("Fed 기준금리 0.75%p 인상")   # → ["macro_rate_risk"]
+vec  = get_risk_vector("Fed 기준금리 0.75%p 인상")         # → array([1., 0., 0.], dtype=float32)
+#                                                                   macro  equity  geo
+# ※ get_risk_vector는 text를 직접 받음 (tags 리스트 아님)
+
+# 또는 risk_vectors_daily.parquet에서 직접 로드 (train/backtest 권장)
+import pandas as pd, numpy as np
+risk_df = pd.read_parquet("data/processed/risk_vectors_daily.parquet").set_index("date")
+vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equity","risk_geo"]], dtype=np.float32)
 ```
 
 ### 2-3. Research → Optimize 리스크 상태 전달
@@ -126,14 +130,15 @@ vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
 공통 태그 순서는 항상 아래와 같다.
 
 ```python
-["규제변경", "실적쇼크", "급등락"]
+["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 ```
 
-벡터 매핑은 각 태그의 감지 여부를 0/1로 표현한다.
+벡터 매핑은 키워드 밀도 스코어 기반(0.0~1.0)이며, `get_risk_vector`는 text를 직접 받는다.
 
 ```python
-get_risk_vector(["실적쇼크", "급등락"])
-# array([0., 1., 1.], dtype=float32)
+from src.agent.risk_tags import get_risk_vector
+vec = get_risk_vector("증시 급락 어닝쇼크 VIX 급등")
+# array([0., 1., 0.], dtype=float32)  ← equity_market_risk 감지
 ```
 
 장점은 사용자별 서버 상태 저장소, DB, 만료 정책 없이 단순하게 구현할 수 있고, `/optimize` 요청이 self-contained라 API 테스트가 쉽다는 점이다. 한계는 브라우저 새로고침, Streamlit 세션 만료, Streamlit 재시작 시 `risk_tags`가 사라지고, 서버에서 “이 최적화가 어떤 리서치 결과에 근거했는지” 이력을 추적할 수 없다는 점이다. 서버 이력 추적이 필요하면 후속 단계에서 `risk_context_id` 저장소를 추가한다.
@@ -153,7 +158,7 @@ get_risk_vector(["실적쇼크", "급등락"])
 | 현재 포트폴리오 비중 | `n_assets` | 이전 step의 `weights` (env 내부 상태) |
 | RSI | `n_assets` | `features_df`의 `{ticker}_RSI` |
 | MACD signal | `n_assets` | `features_df`의 `{ticker}_MACD_signal` |
-| **risk_vector** | `3` | RL_RISK_TAGS 3종 (규제변경 / 실적쇼크 / 급등락), `set_risk_vector()`로 갱신 |
+| **risk_vector** | `3` | RL_RISK_TAGS 3종 (macro_rate / equity_market / geopolitical_fx), `set_risk_vector()`로 갱신 |
 | **합계** | `(lookback + 3) × n_assets + 3` | → `(30 + 3) × 10 + 3 = 333` 차원 |
 
 > `obs_dim = (lookback + 3) * n_assets + 3` (`env.py`)  

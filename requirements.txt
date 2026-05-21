@@ -31,6 +31,9 @@ pyarrow==19.0.1
 fastparquet==2024.11.0
 curl_cffi==0.11.1
 fredapi==0.5.2
+google-cloud-bigquery==3.25.0
+db-dtypes==1.3.0
+pandas_market_calendars==4.4.1
 
 # RL
 gymnasium[classic-control]==1.2.3
@@ -43,3 +46,6 @@ statsmodels>=0.14.0
 
 # 대시보드 차트
 streamlit-echarts~=0.6.0
+
+# 거래일 캘린더 (market_close.py)
+pandas_market_calendars>=4.4

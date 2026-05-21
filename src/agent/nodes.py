@@ -4,6 +4,7 @@ LangGraph 워크플로우 노드 구현 모듈.
 Planner, Researcher, grade_documents(자기교정 판별), Analyst 노드를 정의합니다.
 각 노드는 대시보드 연동을 위해 ``THINK`` 형식의 사고 로그를 남깁니다.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,7 +42,8 @@ class AgentState(TypedDict):
         context: Researcher가 만든 RAG 컨텍스트 문자열.
         documents: 검색 문서 ``{"content", "metadata"}`` 리스트.
         risk_tags: ``risk_tags`` 모듈 추출 태그 (RAG 일반 태그).
-        rl_risk_tags: RL 관측공간 연동용 3종 태그 (규제변경·실적쇼크·급등락).
+        rl_risk_tags: RL 관측공간 연동용 3종 태그
+            (macro_rate_risk·equity_market_risk·geopolitical_fx_risk).
         distances: Chroma 거리 목록(문서 순). 없으면 빈 리스트.
         retry_count: Self-Correction 재검색 횟수.
         needs_research_retry: ``True``면 다음 노드가 researcher.
@@ -269,7 +271,9 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
     retry = int(state.get("retry_count") or 0)
 
     msgs: List[str] = []
-    msgs.append(_think_log("grade_documents", f"평가 시작: 문서 {len(docs)}건, retry_count={retry}"))
+    msgs.append(
+        _think_log("grade_documents", f"평가 시작: 문서 {len(docs)}건, retry_count={retry}")
+    )
 
     insufficient = False
     if not docs:
@@ -293,7 +297,9 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
 
     if insufficient and retry < 3:
         new_q = _refine_search_query_for_retry(state)
-        msgs.append(_think_log("grade_documents", f"재검색 결정 ({retry + 1}/3). 신규 쿼리: {new_q[:120]}…"))
+        msgs.append(
+            _think_log("grade_documents", f"재검색 결정 ({retry + 1}/3). 신규 쿼리: {new_q[:120]}…")
+        )
         return {
             "messages": msgs,
             "needs_research_retry": True,
