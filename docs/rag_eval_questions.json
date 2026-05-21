@@ -2,73 +2,61 @@
   {
     "id": "Q01",
     "question": "금리 인상이 ETF 포트폴리오에 미치는 영향은?",
-    "expect_tags": ["금리_리스크", "시장_리스크"],
     "expect_rl_tags": ["macro_rate"]
   },
   {
     "id": "Q02",
     "question": "한국 금융당국 규제 강화 및 정책 변경 시 투자 리스크는?",
-    "expect_tags": ["규제_리스크", "불확실성_리스크"],
     "expect_rl_tags": ["geopolitical_fx"]
   },
   {
     "id": "Q03",
     "question": "코스피 급락·변동성 확대 시 포트폴리오 리스크와 대응 전략은?",
-    "expect_tags": ["시장_리스크", "변동성_리스크"],
     "expect_rl_tags": ["equity_market"]
   },
   {
     "id": "Q04",
     "question": "어닝쇼크·실적 부진 관련 최근 증시 리스크는?",
-    "expect_tags": ["시장_리스크"],
     "expect_rl_tags": ["equity_market"]
   },
   {
     "id": "Q05",
     "question": "미국 연준 기준금리 결정이 한국 채권 ETF에 미치는 영향은?",
-    "expect_tags": ["금리_리스크"],
     "expect_rl_tags": ["macro_rate"]
   },
   {
     "id": "Q06",
     "question": "원달러 환율 급등 시 포트폴리오 리스크 관리 방법은?",
-    "expect_tags": ["환율_리스크"],
     "expect_rl_tags": ["geopolitical_fx"]
   },
   {
     "id": "Q07",
     "question": "지정학적 리스크(전쟁, 무역분쟁)가 국내 증시에 미치는 영향은?",
-    "expect_tags": ["지정학_리스크", "시장_리스크"],
     "expect_rl_tags": ["geopolitical_fx", "equity_market"]
   },
   {
     "id": "Q08",
     "question": "인플레이션 상승이 자산 배분 전략에 미치는 영향은?",
-    "expect_tags": ["인플레이션_리스크", "금리_리스크"],
     "expect_rl_tags": ["macro_rate"]
   },
   {
     "id": "Q09",
     "question": "시장 변동성 VIX 지수 급등 시 방어적 포트폴리오 구성 전략은?",
-    "expect_tags": ["변동성_리스크", "시장_리스크"],
     "expect_rl_tags": ["equity_market"]
   },
   {
     "id": "Q10",
     "question": "공급망 차질 및 원자재 가격 급등이 ETF 수익률에 미치는 영향은?",
-    "expect_tags": ["지정학_리스크", "인플레이션_리스크"],
     "expect_rl_tags": ["geopolitical_fx", "macro_rate"]
   },
   {
     "id": "Q11",
     "question": "한국은행 기준금리 인상이 부동산·채권 시장에 미치는 영향은?",
-    "expect_tags": ["금리_리스크"],
     "expect_rl_tags": ["macro_rate"]
   },
   {
     "id": "Q12",
     "question": "글로벌 경기침체 우려가 국내 주식형 ETF에 미치는 리스크는?",
-    "expect_tags": ["경기침체_리스크", "시장_리스크"],
     "expect_rl_tags": ["equity_market", "macro_rate"]
   }
 ]

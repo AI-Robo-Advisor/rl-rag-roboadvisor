@@ -130,6 +130,51 @@ Walk-Forward 학습/백테스트에서 각 윈도우별로 다음 절차를 수�
 
 ---
 
+## risk_vectors_daily.parquet
+
+**담당**: 강유영 (`scripts/build_risk_parquet.py`)  
+**대상 독자**: 이문정 (`src/rl/env.py` — `set_risk_vector()` 연동)
+
+### 스키마
+
+| 항목 | 값 |
+|------|----|
+| index | 없음 (컬럼 `date`로 접근) |
+| columns | `date, risk_macro, risk_equity, risk_geo` |
+| 날짜 범위 | 2018-01-01 ~ 2025-12-31 (2922행, **캘린더 일별 — 비거래일 포함**) |
+| 값 | Exponential Decay 적용 스코어 (0.0 ~ 1.0) |
+
+### RL 사용 시 주의: 비거래일 align
+
+`risk_vectors_daily.parquet`은 캘린더 기준 매일 존재하지만,  
+`returns.parquet`은 거래일(미국·한국 공통 거래일)만 존재한다.  
+두 파일을 합칠 때 반드시 `returns.parquet` index 기준으로 align해야 한다.
+
+```python
+import pandas as pd, numpy as np
+
+risk_df  = pd.read_parquet("data/processed/risk_vectors_daily.parquet").set_index("date")
+returns  = pd.read_parquet("data/processed/returns.parquet")
+
+# returns index(거래일)로 reindex → ffill로 직전 거래일 값 채움
+risk_aligned = risk_df.reindex(returns.index, method="ffill")
+
+# env.set_risk_vector() 호출 예시 (step 루프 내)
+vec = np.array(risk_aligned.loc[date, ["risk_macro", "risk_equity", "risk_geo"]], dtype=np.float32)
+env.set_risk_vector(vec)
+```
+
+### 재생성
+
+```bash
+python scripts/collect_ecos.py          # ECOS API 필요
+python scripts/collect_manual_seed.py
+python scripts/merge_raw_events.py
+python scripts/build_risk_parquet.py
+```
+
+---
+
 ## 데이터 재생성
 
 ```bash

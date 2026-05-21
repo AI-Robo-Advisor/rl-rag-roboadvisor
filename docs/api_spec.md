@@ -247,7 +247,7 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 #### Sprint 3 통합 목표
 
 - `src/rl/shap.py` (이문정)에서 SHAP 값 계산 후 반환
-- 피처명은 window별 정규화가 적용된 feature 컬럼명 + risk 피처 포함: `{ticker}_{return|RSI|MACD_signal}`, `risk_규제변경`, `risk_실적쇼크`, `risk_급등락` (총 333개, `shap.get_feature_names()` 참고)
+- 피처명은 window별 정규화가 적용된 feature 컬럼명 + risk 피처 포함: `{ticker}_{return|RSI|MACD_signal}`, `risk_macro`, `risk_equity`, `risk_geo` (총 333개, `shap.get_feature_names()` 참고)
 - TODO: SHAP/백테스트 연동 시 `features.parquet` 직접 사용을 중단하고, `raw_features.parquet`에 학습 윈도우 통계를 적용한 feature를 사용한다.
 
 ---
@@ -286,7 +286,7 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
     "https://..."
   ],
   "reasoning_trace": "[THINK][planner] 질의 분석 시작\n[THINK][researcher] Chroma hit=5건\n...",
-  "risk_tags": ["급등락", "실적쇼크"]
+  "risk_tags": ["macro_rate", "equity_market"]
 }
 ```
 
@@ -297,7 +297,7 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
 | `report` | `str` | Markdown 형식 투자 분석 리포트 |
 | `sources` | `list[str]` | 참고한 뉴스 URL 목록 (없으면 GitHub 레포 URL) |
 | `reasoning_trace` | `str` | LangGraph 내부 추론 과정 (`[THINK][노드명]` 접두사) |
-| `risk_tags` | `list[str]` | 감지된 리스크 태그 (`"규제변경"`, `"실적쇼크"`, `"급등락"` 중 해당 항목) |
+| `risk_tags` | `list[str]` | 감지된 리스크 태그 (`"macro_rate"` \| `"equity_market"` \| `"geopolitical_fx"` 중 해당 항목) |
 
 #### LangGraph 연동 시그니처 (강유영 제공)
 

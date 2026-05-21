@@ -73,22 +73,18 @@ date,regime
 
 ### 2-1. 일반 리스크 태그 (RAG 리포트용)
 
-**정의 위치**: `src/agent/risk_tags.py` — `RISK_KEYWORD_MAP`  
-**활용**: `POST /research` 응답의 `risk_tags` 필드
+**정의 위치**: `src/agent/risk_tags.py` — `extract_risk_tags(text)`  
+**활용**: `POST /research` 응답의 `risk_tags` 필드  
+**반환 형식**: score > 0인 축만 포함, `_risk` 접미사 포함
 
-| 태그 | 심각도 | 트리거 키워드 (예시) |
-|------|--------|---------------------|
-| `지정학_리스크` | HIGH | 지정학, 전쟁, 분쟁, 제재 |
-| `경기침체_리스크` | HIGH | 침체, 리세션, 경기둔화 |
-| `신용_리스크` | HIGH | 부도, 파산, 디폴트 |
-| `금리_리스크` | MEDIUM | 금리, 기준금리 |
-| `인플레이션_리스크` | MEDIUM | 인플레이션, 물가 |
-| `유동성_리스크` | MEDIUM | 유동성 |
-| `시장_리스크` | MEDIUM | 하락, 폭락, 급락 |
-| `환율_리스크` | LOW | 환율, 달러 |
-| `규제_리스크` | LOW | 규제, 법안 |
-| `불확실성_리스크` | LOW | 불확실성 |
-| `변동성_리스크` | LOW | 변동성 |
+| 반환값 | 설명 |
+|--------|------|
+| `macro_rate_risk` | 금리·매크로 이벤트 감지 시 |
+| `equity_market_risk` | 증시 급락·경기침체 이벤트 감지 시 |
+| `geopolitical_fx_risk` | 지정학·환율·무역 이벤트 감지 시 |
+
+> **구 태그 (`RISK_KEYWORD_MAP`) 삭제됨**: `지정학_리스크`, `경기침체_리스크` 등 한국어 심각도 태그는  
+> Sprint 3에서 3축 체계로 통일되며 제거되었다. `RISK_KEYWORD_MAP` 상수는 코드에 존재하지 않는다.
 
 ### 2-2. RL 관측공간 연동 태그 (3종 고정)
 
@@ -108,8 +104,9 @@ date,regime
 from src.agent.risk_tags import get_risk_vector, extract_rl_risk_tags
 
 tags = extract_rl_risk_tags("Fed 기준금리 0.75%p 인상")   # → ["macro_rate"]
-vec  = get_risk_vector(tags)   # → array([1., 0., 0.], dtype=float32)
-#                                         macro  equity  geo
+vec  = get_risk_vector("Fed 기준금리 0.75%p 인상")         # → array([1., 0., 0.], dtype=float32)
+#                                                                   macro  equity  geo
+# ※ get_risk_vector는 text를 직접 받음 (tags 리스트 아님)
 
 # 또는 risk_vectors_daily.parquet에서 직접 로드 (train/backtest 권장)
 import pandas as pd, numpy as np

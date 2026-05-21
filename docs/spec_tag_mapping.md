@@ -49,7 +49,7 @@ obs_dim = (lookback + 3) * n_assets + 3  →  (30+3)*10+3 = 333
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| `date` | datetime64[ns] | 거래일 기준 (2018-01-01 ~ 2025-12-31) |
+| `date` | datetime64[ns] | 캘린더 일별(비거래일 포함), 2018-01-01 ~ 2025-12-31. RL 학습/백테스트 시 `returns.parquet` index(거래일)로 align 필요 (`ffill` 또는 inner join) |
 | `risk_macro` | float32 | macro_rate 이벤트 Exponential Decay 누적 (0~1) |
 | `risk_equity` | float32 | equity_market 이벤트 Exponential Decay 누적 (0~1) |
 | `risk_geo` | float32 | geopolitical_fx 이벤트 Exponential Decay 누적 (0~1) |
