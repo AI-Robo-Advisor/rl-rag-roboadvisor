@@ -5,8 +5,8 @@
 RL 학습·백테스트용 일별 risk 벡터 파일을 생성합니다.
 
 입력 (없는 파일은 자동 스킵):
-  data/raw/gdelt/gdelt_events_2020_2025.parquet    (담당: 박지민, 2020~ 수집)
-  data/raw/fred/fred_events_2020_2025.parquet      (담당: 이문정, 2020~ 수집)
+  data/raw/gdelt/gdelt_events_2018_2025.parquet    (담당: 박지민, 2018~ 수집)
+  data/raw/fred/fred_events_2018_2025.parquet      (담당: 이문정, 2018~ 수집)
   data/raw/ecos/ecos_events_2018_2025.parquet      (담당: 강유영)
   data/raw/manual_seed/manual_seed_events.parquet  (담당: 강유영 D)
 
@@ -58,8 +58,8 @@ SEVERITY_COLS: Dict[str, str] = {
 }
 
 RAW_PATHS: List[Path] = [
-    Path("data/raw/gdelt/gdelt_events_2020_2025.parquet"),
-    Path("data/raw/fred/fred_events_2020_2025.parquet"),
+    Path("data/raw/gdelt/gdelt_events_2018_2025.parquet"),
+    Path("data/raw/fred/fred_events_2018_2025.parquet"),
     Path("data/raw/ecos/ecos_events_2018_2025.parquet"),
     Path("data/raw/manual_seed/manual_seed_events.parquet"),
 ]
