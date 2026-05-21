@@ -38,6 +38,9 @@ MACRO_KEYWORDS: List[str] = [
     "미국 국채금리 급등", "장기금리 상승", "금리 급등",
     "달러 강세", "달러 급등", "DXY 상승",
     "금리 인하 지연", "금리 동결 장기화",
+    # English
+    "rate hike", "fed rate hike", "fomc hike", "cpi surprise", "inflation surge",
+    "dollar surge", "yield surge", "rate freeze",
 ]
 
 EQUITY_KEYWORDS: List[str] = [
@@ -47,6 +50,9 @@ EQUITY_KEYWORDS: List[str] = [
     "기술주 조정", "성장주 하락", "밸류에이션 부담",
     "VIX 급등", "공포지수 급등",
     "신흥국 자금 유출", "패닉셀", "투매",
+    # English
+    "market crash", "stock crash", "nasdaq crash", "earnings shock",
+    "recession fear", "panic sell", "vix spike",
 ]
 
 GEO_KEYWORDS: List[str] = [
@@ -57,6 +63,9 @@ GEO_KEYWORDS: List[str] = [
     "중국 경기 둔화", "중국 경착륙",
     "원/달러 환율 급등", "원화 약세", "환율 급등",
     "공급망 차질", "공급망 붕괴",
+    # English
+    "trade war", "tariffs", "sanctions", "geopolitical risk",
+    "oil surge", "fx surge", "supply chain disruption",
 ]
 
 _KEYWORD_MAP: Dict[str, List[str]] = {
@@ -82,7 +91,8 @@ def keyword_density(text: str, keywords: List[str]) -> float:
     Returns:
         0.0 ~ 1.0 사이의 강도 값.
     """
-    hits = sum(1 for kw in keywords if kw in text)
+    text_cf = text.casefold()
+    hits = sum(1 for kw in keywords if kw.casefold() in text_cf)
     return round(min(hits / _MAX_HITS, 1.0), 2)
 
 
