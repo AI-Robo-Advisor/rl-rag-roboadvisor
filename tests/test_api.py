@@ -136,9 +136,7 @@ def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
     monkeypatch.setattr(api_services, "_load_ppo_model", lambda: FakeModel())
     monkeypatch.setattr(rl_env, "PortfolioEnv", FakeEnv)
 
-    weights = api_services._predict_ppo_weights(
-        ["SPY", "QQQ"], ["equity_market_risk", "geopolitical_fx_risk"]
-    )
+    weights = api_services._predict_ppo_weights(["SPY", "QQQ"], ["equity_market_risk", "geopolitical_fx_risk"])
 
     assert weights == {"SPY": 0.8, "QQQ": 0.2}
     assert captured["risk_vector"].tolist() == [0.0, 1.0, 1.0]
@@ -334,7 +332,7 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {
             "event": "on_chain_end",
             "name": "analyst",
-            "data": {"output": {"response": "분석 완료", "risk_tags": ["macro_rate_risk"]}},
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
         }
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
@@ -359,7 +357,7 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert '"type":"on_chain_end"' in lines[2]
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
-    assert "macro_rate_risk" in lines[-1]
+    assert "equity_market_risk" in lines[-1]
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:

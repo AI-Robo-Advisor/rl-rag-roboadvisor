@@ -520,8 +520,14 @@ def _predict_ppo_weights(
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
 
-    from src.agent.risk_tags import get_risk_vector
+    from src.agent.risk_tags import RL_RISK_TAGS
     from src.rl.env import PortfolioEnv
+
+    risk_tags_set = set(risk_tags or [])
+    risk_vector = np.array(
+        [1.0 if tag in risk_tags_set else 0.0 for tag in RL_RISK_TAGS],
+        dtype=np.float32,
+    )
 
     model = _load_ppo_model()
     env = PortfolioEnv(
@@ -529,7 +535,7 @@ def _predict_ppo_weights(
         features_df=features,
         lookback=30,
         reward_type="sharpe",
-        risk_vector=get_risk_vector(risk_tags or []),
+        risk_vector=risk_vector,
     )
     obs, _ = env.reset()
     env.current_step = len(env.features_df) - 1
@@ -1108,85 +1114,18 @@ def _can_load_data_files() -> bool:
 
 
 def _infer_risk_tags(question: str) -> list[str]:
-    """Infer asset-impact risk tags from a Korean or English question."""
-    lowered = question.lower()
-    tags: list[str] = []
-    if any(
-        keyword in lowered
-        for keyword in (
-            "금리",
-            "기준금리",
-            "연준",
-            "fomc",
-            "fed",
-            "cpi",
-            "ppi",
-            "인플레이션",
-            "물가",
-            "국채",
-            "달러",
-            "rate",
-            "inflation",
-            "treasury",
-        )
-    ):
-        tags.append("macro_rate_risk")
-    if any(
-        keyword in lowered
-        for keyword in (
-            "증시",
-            "주가",
-            "코스피",
-            "경기침체",
-            "리세션",
-            "실적",
-            "어닝",
-            "vix",
-            "변동성",
-            "급락",
-            "폭락",
-            "stock",
-            "earnings",
-            "recession",
-            "volatility",
-        )
-    ):
-        tags.append("equity_market_risk")
-    if any(
-        keyword in lowered
-        for keyword in (
-            "지정학",
-            "전쟁",
-            "미중",
-            "관세",
-            "제재",
-            "공급망",
-            "환율",
-            "원/달러",
-            "원화",
-            "원유",
-            "중국",
-            "geopolitical",
-            "war",
-            "tariff",
-            "sanction",
-            "supply chain",
-            "fx",
-            "oil",
-        )
-    ):
-        tags.append("geopolitical_fx_risk")
-    return tags
+    """Infer RL risk tags from a Korean or English question."""
+    from src.agent.risk_tags import RL_RISK_TAGS, extract_rl_risk_tags
+    return extract_rl_risk_tags(question) or [RL_RISK_TAGS[1]]  # fallback: equity_market
 
 
 def _normalize_rl_risk_tags(tags: Any) -> list[str]:
     """Keep only tags that belong to the fixed RL observation vector."""
     try:
         from src.agent.risk_tags import RL_RISK_TAGS
+        allowed = set(RL_RISK_TAGS)
     except Exception:
-        RL_RISK_TAGS = ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
-
-    allowed = set(RL_RISK_TAGS)
+        return []
     return [str(tag) for tag in tags or [] if str(tag) in allowed]
 
 

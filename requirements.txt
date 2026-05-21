@@ -45,3 +45,6 @@ statsmodels>=0.14.0
 
 # 대시보드 차트
 streamlit-echarts~=0.6.0
+
+# 거래일 캘린더 (market_close.py)
+pandas_market_calendars>=4.4

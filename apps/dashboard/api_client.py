@@ -7,7 +7,10 @@ from typing import Any, Callable
 
 import requests
 
-RL_RISK_TAGS = ["규제변경", "실적쇼크", "급등락"]
+try:
+    from src.agent.risk_tags import RL_RISK_TAGS
+except ImportError:
+    RL_RISK_TAGS = ["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 _RESEARCH_NODE_LABELS = {
     "planner": "질문 분석",
     "researcher": "문서 검색",
