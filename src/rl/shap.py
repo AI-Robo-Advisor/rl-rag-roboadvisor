@@ -63,7 +63,7 @@ import numpy as np
 import pandas as pd
 
 # RL 리스크 태그 피처명 (관측공간 마지막 3개, labels_and_interfaces.md 2-2절 참고)
-RISK_FEATURE_NAMES: list[str] = ["risk_macro", "risk_equity", "risk_geo"]
+RISK_FEATURE_NAMES: list[str] = ["risk_macro_rate_risk", "risk_equity_market_risk", "risk_geopolitical_fx_risk"]
 
 DEFAULT_ASSET_NAMES: list[str] = [
     "SPY", "QQQ", "IWM", "EFA", "EEM",

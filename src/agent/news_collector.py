@@ -95,7 +95,7 @@ def infer_risk_label(title: str, summary: str) -> str:
     """
     제목·요약에 리스크 관련 키워드가 있으면 메타데이터용 risk_label 문자열을 만듭니다.
 
-    쉼표로 구분된 RL 3축 라벨(예: 'macro_rate,equity_market'). 해당 없으면 빈 문자열.
+    쉼표로 구분된 RL 3축 라벨(예: 'macro_rate_risk,equity_market_risk'). 해당 없으면 빈 문자열.
 
     Args:
         title: 뉴스 제목.
@@ -112,11 +112,11 @@ def infer_risk_label(title: str, summary: str) -> str:
             found.append(label)
 
     if any(k in text for k in ("금리", "기준금리", "연준", "FOMC", "CPI", "물가", "국채", "빅스텝", "자이언트스텝")):
-        add("macro_rate")
+        add("macro_rate_risk")
     if any(k in text for k in ("급락", "폭락", "어닝쇼크", "실적쇼크", "VIX", "증시", "코스피", "코스닥")):
-        add("equity_market")
+        add("equity_market_risk")
     if any(k in text for k in ("지정학", "전쟁", "제재", "규제", "관세", "환율", "달러", "공급망")):
-        add("geopolitical_fx")
+        add("geopolitical_fx_risk")
 
     return ",".join(found)
 

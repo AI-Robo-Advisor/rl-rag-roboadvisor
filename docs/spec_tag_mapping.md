@@ -11,16 +11,16 @@
 
 | 과제 명세 예시 (자연어) | 팀 RL 축 | parquet 컬럼 | obs 순서 |
 |------------------------|----------|-------------|---------|
-| 금리 인상·인하, FOMC, Fed, CPI·PPI, 국채금리, 달러 강세, 한국은행 기준금리, 채권 가격 변동 | **macro_rate** | `macro_rate_risk` | 0 |
-| 증시 급락·폭락, 경기침체 우려, 어닝쇼크, VIX 급등, 패닉셀, KOSPI 급락 | **equity_market** | `equity_market_risk` | 1 |
-| 전쟁·지정학 갈등, 관세·무역 전쟁, 반도체 수출 규제, 공급망 충격, 환율 급변 | **geopolitical_fx** | `geopolitical_fx_risk` | 2 |
+| 금리 인상·인하, FOMC, Fed, CPI·PPI, 국채금리, 달러 강세, 한국은행 기준금리, 채권 가격 변동 | **macro_rate_risk** | `macro_rate_risk` | 0 |
+| 증시 급락·폭락, 경기침체 우려, 어닝쇼크, VIX 급등, 패닉셀, KOSPI 급락 | **equity_market_risk** | `equity_market_risk` | 1 |
+| 전쟁·지정학 갈등, 관세·무역 전쟁, 반도체 수출 규제, 공급망 충격, 환율 급변 | **geopolitical_fx_risk** | `geopolitical_fx_risk` | 2 |
 
 > **구 태그(레거시) 매핑**
 > | 구 태그 | 신 태그 | 비고 |
 > |--------|--------|------|
-> | 규제변경 | `macro_rate` + `geopolitical_fx` (내용에 따라) | 정책·법률 규제 → macro, 수출규제·제재 → geo |
-> | 실적쇼크 | `equity_market` | |
-> | 급등락 | `equity_market` 주도 (+ 원인에 따라 macro/geo 보완) | |
+> | 규제변경 | `macro_rate_risk` + `geopolitical_fx_risk` (내용에 따라) | 정책·법률 규제 → macro, 수출규제·제재 → geo |
+> | 실적쇼크 | `equity_market_risk` | |
+> | 급등락 | `equity_market_risk` 주도 (+ 원인에 따라 macro/geo 보완) | |
 
 ---
 
@@ -68,5 +68,5 @@ obs_dim = (lookback + 3) * n_assets + 3  →  (30+3)*10+3 = 333
 | `macro_rate_risk` | 0.0 \| 0.33 \| 0.66 \| 1.0 |
 | `equity_market_risk` | 0.0 \| 0.33 \| 0.66 \| 1.0 |
 | `geopolitical_fx_risk` | 0.0 \| 0.33 \| 0.66 \| 1.0 |
-| `primary_tag` | `"macro_rate"` \| `"equity_market"` \| `"geopolitical_fx"` \| `"none"` |
+| `primary_tag` | `"macro_rate_risk"` \| `"equity_market_risk"` \| `"geopolitical_fx_risk"` \| `"none"` |
 | `label_method` | `"rule_based"` \| `"manual"` \| `"llm"` |

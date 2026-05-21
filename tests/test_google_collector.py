@@ -14,14 +14,14 @@ def test_infer_risk_label_empty():
 
 def test_infer_risk_label_regulation_and_shock():
     s = infer_risk_label("규제 강화", "실적쇼크 우려")
-    assert "geopolitical_fx" in s
-    assert "equity_market" in s
+    assert "geopolitical_fx_risk" in s
+    assert "equity_market_risk" in s
 
 
 def test_infer_risk_label_volatility_and_rate():
     s = infer_risk_label("코스피 급락", "금리인상 부담")
-    assert "equity_market" in s
-    assert "macro_rate" in s
+    assert "equity_market_risk" in s
+    assert "macro_rate_risk" in s
 
 
 def test_fetch_google_news_rss_mock():
