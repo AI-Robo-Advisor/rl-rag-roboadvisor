@@ -130,14 +130,15 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
 공통 태그 순서는 항상 아래와 같다.
 
 ```python
-["규제변경", "실적쇼크", "급등락"]
+["macro_rate", "equity_market", "geopolitical_fx"]
 ```
 
-벡터 매핑은 각 태그의 감지 여부를 0/1로 표현한다.
+벡터 매핑은 키워드 밀도 스코어 기반(0.0~1.0)이며, `get_risk_vector`는 text를 직접 받는다.
 
 ```python
-get_risk_vector(["실적쇼크", "급등락"])
-# array([0., 1., 1.], dtype=float32)
+from src.agent.risk_tags import get_risk_vector
+vec = get_risk_vector("증시 급락 어닝쇼크 VIX 급등")
+# array([0., 1., 0.], dtype=float32)  ← equity_market 감지
 ```
 
 장점은 사용자별 서버 상태 저장소, DB, 만료 정책 없이 단순하게 구현할 수 있고, `/optimize` 요청이 self-contained라 API 테스트가 쉽다는 점이다. 한계는 브라우저 새로고침, Streamlit 세션 만료, Streamlit 재시작 시 `risk_tags`가 사라지고, 서버에서 “이 최적화가 어떤 리서치 결과에 근거했는지” 이력을 추적할 수 없다는 점이다. 서버 이력 추적이 필요하면 후속 단계에서 `risk_context_id` 저장소를 추가한다.

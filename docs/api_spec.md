@@ -137,7 +137,7 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
   "tickers": ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"],
   "risk_profile": "balanced",
   "risk_aversion": 1.0,
-  "risk_tags": ["실적쇼크", "급등락"]
+  "risk_tags": ["equity_market", "macro_rate"]
 }
 ```
 
@@ -148,7 +148,7 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 | `risk_aversion` | `float` (> 0) | 아니오 | `null` | 수치형 위험 회피 계수. 설정 시 `risk_profile` 보다 우선 |
 | `risk_tags` | `list[str] \| null` | 아니오 | `null` | `/research/stream` 완료 이벤트에서 받은 RL 연동 리스크 태그. PPO ready 경로에서 `risk_vector`로 변환 |
 
-> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["실적쇼크", "급등락"]}`
+> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["equity_market", "macro_rate"]}`
 
 #### 응답 `200 OK`
 
