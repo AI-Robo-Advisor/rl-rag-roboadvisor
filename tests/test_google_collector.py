@@ -9,19 +9,19 @@ from src.agent.news_collector import (
 
 
 def test_infer_risk_label_empty():
-    assert infer_risk_label("일반 시황", "코스피 소폭 상승") == ""
+    assert infer_risk_label("일반 시황", "배당 일정 확인") == ""
 
 
 def test_infer_risk_label_regulation_and_shock():
     s = infer_risk_label("규제 강화", "실적쇼크 우려")
-    assert "규제변경" in s
-    assert "실적쇼크" in s
+    assert "geopolitical_fx" in s
+    assert "equity_market" in s
 
 
 def test_infer_risk_label_volatility_and_rate():
     s = infer_risk_label("코스피 급락", "금리인상 부담")
-    assert "급등락" in s
-    assert "금리인상" in s
+    assert "equity_market" in s
+    assert "macro_rate" in s
 
 
 def test_fetch_google_news_rss_mock():

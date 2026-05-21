@@ -333,7 +333,7 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 {"type":"start","question":"삼성전자 HBM 전망은?"}
 {"type":"on_chain_start","name":"planner","text":"..."}
 {"type":"on_chain_end","name":"analyst","text":"분석 완료"}
-{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["실적쇼크"]}
+{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["equity_market"]}
 ```
 
 `complete` 이벤트 스키마는 아래 필드를 포함한다.
@@ -345,7 +345,7 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 | `report` | `str` | 최종 리포트 |
 | `sources` | `list[str]` | 참고 URL 목록 |
 | `reasoning_trace` | `str` | 추론 로그 |
-| `risk_tags` | `list[str]` | RL 연동 태그 (`규제변경`, `실적쇼크`, `급등락`) |
+| `risk_tags` | `list[str]` | RL 연동 태그 (`macro_rate`, `equity_market`, `geopolitical_fx`) |
 
 `risk_tags`는 API 서버에 영속 저장하지 않는다. 대시보드는 `complete.risk_tags`를 `st.session_state["risk_tags"]`에 저장하고, 다음 `POST /optimize` 요청에 명시적으로 포함해야 한다.
 
