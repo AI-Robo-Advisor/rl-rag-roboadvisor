@@ -38,8 +38,10 @@ build/
 chroma_db/
 
 CLAUDE.local.md
+GDELT.local.md
 agent.md
 prompt.txt
+gdelt.json
 
 # 로컬 전용 모델 파일 (git 추적 제외)
 models/ppo_return_50k.zip

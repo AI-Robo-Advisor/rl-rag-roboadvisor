@@ -1,8 +1,8 @@
 """FastAPI Sprint 2 endpoint contract tests."""
 
+import json
 import math
 import time
-import json
 from concurrent.futures import TimeoutError
 
 import pandas as pd

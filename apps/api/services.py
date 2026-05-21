@@ -22,14 +22,14 @@ import pandas as pd
 from apps.api.config import settings
 from apps.api.schemas import (
     AnovaResult,
-    BacktestWindow,
     BacktestResponse,
+    BacktestWindow,
     ExplainResponse,
     FeatureContribution,
     InteractionStats,
     OptimizeResponse,
-    ReturnSeries,
     ResearchResponse,
+    ReturnSeries,
     RiskProfile,
     SafeguardState,
     StrategyEffectStats,
