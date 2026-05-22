@@ -103,7 +103,7 @@ def score_risk_vector(text: str) -> Tuple[float, float, float]:
         text: 분석할 텍스트.
 
     Returns:
-        (macro_rate, equity_market, geopolitical_fx) 스코어 튜플.
+        (macro_rate_risk, equity_market_risk, geopolitical_fx_risk) 스코어 튜플.
     """
     if not text:
         return (0.0, 0.0, 0.0)

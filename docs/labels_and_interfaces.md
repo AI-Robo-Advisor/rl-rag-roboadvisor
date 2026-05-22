@@ -76,7 +76,7 @@ date,regime
 **정의 위치**: `src/agent/risk_tags.py` — `extract_risk_tags(text)`  
 **활용**: `POST /research` 응답의 `risk_tags` 필드  
 **반환 형식**: score > 0인 축만 포함, `_risk` 접미사 포함  
-> **API 필드 관계**: JSON 키는 `risk_tags`이나, LangGraph 정상 경로에서는 `rl_risk_tags`(`extract_rl_risk_tags` 기준 — `macro_rate` 등 접미사 없음)가 우선 채워짐. `services.py:124` 참고.
+> **API 필드 관계**: JSON 키는 `risk_tags`이나, LangGraph 정상 경로에서는 `rl_risk_tags`(`extract_rl_risk_tags` 기준 — `macro_rate_risk` 등 `_risk` 접미사 포함)가 우선 채워짐. `services.py:124` 참고.
 
 | 반환값 | 설명 |
 |--------|------|
@@ -158,7 +158,7 @@ vec = get_risk_vector("증시 급락 어닝쇼크 VIX 급등")
 | 현재 포트폴리오 비중 | `n_assets` | 이전 step의 `weights` (env 내부 상태) |
 | RSI | `n_assets` | `features_df`의 `{ticker}_RSI` |
 | MACD signal | `n_assets` | `features_df`의 `{ticker}_MACD_signal` |
-| **risk_vector** | `3` | RL_RISK_TAGS 3종 (macro_rate / equity_market / geopolitical_fx), `set_risk_vector()`로 갱신 |
+| **risk_vector** | `3` | RL_RISK_TAGS 3종 (macro_rate_risk / equity_market_risk / geopolitical_fx_risk), `set_risk_vector()`로 갱신 |
 | **합계** | `(lookback + 3) × n_assets + 3` | → `(30 + 3) × 10 + 3 = 333` 차원 |
 
 > `obs_dim = (lookback + 3) * n_assets + 3` (`env.py`)  
