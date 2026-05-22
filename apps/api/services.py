@@ -138,14 +138,15 @@ def build_portfolio_response(
     """Return PPO portfolio weights when available, otherwise fallback weights."""
     start = perf_counter()
     selected_tickers = tickers or DEFAULT_TICKERS
+    selected_risk_tags = risk_tags if risk_tags is not None else _default_rl_risk_tags()
     try:
-        weights = _predict_ppo_weights_with_timeout(selected_tickers, risk_tags or [])
+        weights = _predict_ppo_weights_with_timeout(selected_tickers, selected_risk_tags)
     except Exception as exc:
         return build_fallback_portfolio(
             selected_tickers,
             risk_profile,
             risk_aversion,
-            risk_tags,
+            selected_risk_tags,
             elapsed_ms=_elapsed_ms(start),
             timed_out=isinstance(exc, TimeoutError),
         )
@@ -155,7 +156,7 @@ def build_portfolio_response(
             selected_tickers,
             risk_profile,
             risk_aversion,
-            risk_tags,
+            selected_risk_tags,
             elapsed_ms=_elapsed_ms(start),
         )
 
@@ -165,7 +166,7 @@ def build_portfolio_response(
             selected_tickers,
             risk_profile,
             risk_aversion,
-            risk_tags,
+            selected_risk_tags,
             elapsed_ms=_elapsed_ms(start),
         )
 
@@ -1117,6 +1118,13 @@ def _infer_risk_tags(question: str) -> list[str]:
     """Infer RL risk tags from a Korean or English question."""
     from src.agent.risk_tags import RL_RISK_TAGS, extract_rl_risk_tags
     return extract_rl_risk_tags(question) or [RL_RISK_TAGS[1]]  # fallback: equity_market_risk
+
+
+def _default_rl_risk_tags() -> list[str]:
+    """Return the default RL risk vector tag used when requests omit tags."""
+    from src.agent.risk_tags import RL_RISK_TAGS
+
+    return [RL_RISK_TAGS[1]]  # equity_market_risk
 
 
 def _normalize_rl_risk_tags(tags: Any) -> list[str]:
