@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 RAW_PATHS: list[Path] = [
-    Path("data/raw/gdelt/gdelt_events_2020_2025.parquet"),
-    Path("data/raw/fred/fred_events_2020_2025.parquet"),
+    Path("data/raw/gdelt/gdelt_events_2018_2025_filtered.parquet"),
+    Path("data/raw/fred/fred_events_2018_2025.parquet"),
     Path("data/raw/ecos/ecos_events_2018_2025.parquet"),
     Path("data/raw/manual_seed/manual_seed_events.parquet"),
 ]
@@ -60,6 +60,13 @@ def main() -> None:
 
     merged = pd.concat(frames, ignore_index=True)
     merged["date"] = pd.to_datetime(merged["date"])
+
+    # 수집 범위 초과 날짜 제거 (market close 보정으로 밀린 경우)
+    before_clip = len(merged)
+    merged = merged[merged["date"] <= pd.Timestamp("2025-12-31")]
+    if len(merged) < before_clip:
+        logger.info("2025-12-31 초과 날짜 제거: %d건", before_clip - len(merged))
+
     merged = merged.sort_values("date").reset_index(drop=True)
 
     # event_id 기준 중복 제거
