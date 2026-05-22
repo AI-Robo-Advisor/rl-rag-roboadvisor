@@ -51,8 +51,8 @@ BATCH_SIZE = 500
 # 유틸리티
 # ─────────────────────────────────────────────
 
-def _doc_id(event_id: str, url: str) -> str:
-    """ChromaDB 고유 ID: event_id 기반 (URL은 FRED/ECOS 시계열 URL이라 비고유).
+def _doc_id(event_id: str) -> str:
+    """ChromaDB 고유 ID: event_id 기반.
 
     실시간 RSS 수집(news_collector.py)은 URL MD5를 사용하므로 ID 공간이 분리됨.
     """
@@ -180,7 +180,7 @@ def build_chroma(dry_run: bool = False, clear: bool = False) -> None:
 
         seen_ids = set()
         for _, row in batch.iterrows():
-            doc_id = _doc_id(str(row.get("event_id", "")), row["url"])
+            doc_id = _doc_id(str(row.get("event_id", "")))
             if doc_id in seen_ids:
                 continue
             seen_ids.add(doc_id)
