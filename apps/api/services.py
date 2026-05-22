@@ -1116,7 +1116,7 @@ def _can_load_data_files() -> bool:
 def _infer_risk_tags(question: str) -> list[str]:
     """Infer RL risk tags from a Korean or English question."""
     from src.agent.risk_tags import RL_RISK_TAGS, extract_rl_risk_tags
-    return extract_rl_risk_tags(question) or [RL_RISK_TAGS[1]]  # fallback: equity_market
+    return extract_rl_risk_tags(question) or [RL_RISK_TAGS[1]]  # fallback: equity_market_risk
 
 
 def _normalize_rl_risk_tags(tags: Any) -> list[str]:

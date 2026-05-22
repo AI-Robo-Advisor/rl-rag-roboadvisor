@@ -15,9 +15,9 @@ RL 학습·백테스트용 일별 risk 벡터 파일을 생성합니다.
   컬럼: date | risk_macro | risk_equity | risk_geo
 
 Decay 기간:
-  macro_rate:      30일 (금리·매크로 이벤트)
-  equity_market:   10일 (시장 변동성)
-  geopolitical_fx: 60일 (전쟁·제재)
+  macro_rate_risk:      30일 (금리·매크로 이벤트)
+  equity_market_risk:   10일 (시장 변동성)
+  geopolitical_fx_risk: 60일 (전쟁·제재)
 
 실행:
   python scripts/build_risk_parquet.py
@@ -68,10 +68,10 @@ OUTPUT_PATH = Path("data/processed/risk_vectors_daily.parquet")
 
 # sanity check: 알려진 고위험 날짜
 SANITY_DATES: Dict[str, str] = {
-    "2022-06-15": "macro_rate 높아야 함 (FOMC 0.75%p 자이언트 스텝)",
-    "2020-03-16": "equity_market 높아야 함 (코로나 패닉)",
-    "2022-02-24": "geopolitical_fx 높아야 함 (러-우 전쟁 개전)",
-    "2022-10-07": "geopolitical_fx 높아야 함 (미국 반도체 수출 규제)",
+    "2022-06-15": "macro_rate_risk 높아야 함 (FOMC 0.75%p 자이언트 스텝)",
+    "2020-03-16": "equity_market_risk 높아야 함 (코로나 패닉)",
+    "2022-02-24": "geopolitical_fx_risk 높아야 함 (러-우 전쟁 개전)",
+    "2022-10-07": "geopolitical_fx_risk 높아야 함 (미국 반도체 수출 규제)",
 }
 
 # ─────────────────────────────────────────────
