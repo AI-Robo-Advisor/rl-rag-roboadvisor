@@ -1,4 +1,4 @@
-"""GDELT 2.0 BigQuery 이벤트 수집 CLI."""
+"""GDELT 2.0 BigQuery GKG 수집 CLI."""
 
 from __future__ import annotations
 
