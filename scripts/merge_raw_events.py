@@ -60,6 +60,13 @@ def main() -> None:
 
     merged = pd.concat(frames, ignore_index=True)
     merged["date"] = pd.to_datetime(merged["date"])
+
+    # 수집 범위 초과 날짜 제거 (market close 보정으로 밀린 경우)
+    before_clip = len(merged)
+    merged = merged[merged["date"] <= pd.Timestamp("2025-12-31")]
+    if len(merged) < before_clip:
+        logger.info("2025-12-31 초과 날짜 제거: %d건", before_clip - len(merged))
+
     merged = merged.sort_values("date").reset_index(drop=True)
 
     # event_id 기준 중복 제거
