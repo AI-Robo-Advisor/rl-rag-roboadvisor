@@ -1,5 +1,10 @@
 # RAG 평가 결과
 
+> ⚠️ **이 평가는 smoke test 기반입니다.**
+> ChromaDB에 equity 위주 데이터(31건)만 적재된 상태에서 측정되었으므로,
+> `rl_tags` 컬럼은 현재 태그 분류 정확도를 반영하지 않습니다.
+> 전체 데이터 수집(GDELT·FRED·ECOS) 완료 후 재측정 예정.
+
 | id | 질문 | hit | min_dist | retry | sources | rl_tags | report_len |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Q01 | 금리 인상이 ETF 포트폴리오에 미치는 영향은? | 5 | 0.3333 | 0 | 5 | `equity_market` | 885 |
@@ -15,26 +20,27 @@
 | Q11 | 한국은행 기준금리 인상이 부동산·채권 시장에 미치는 영… | 5 | 0.0564 | 0 | 5 | `equity_market` | 793 |
 | Q12 | 글로벌 경기침체 우려가 국내 주식형 ETF에 미치는 리… | 5 | 0.1564 | 0 | 5 | `equity_market` | 1200 |
 
-## 요약
+## ✅ 이번 평가에서 유효한 검증 항목
 
-- **총 질문 수**: 12개
-- **hit ≥ 2**: 12/12 (100%)
-- **hit = 5 (top-k 포화)**: 12/12 — ChromaDB 31건 전부 매칭 (smoke test 데이터)
-- **min_dist < 0.75 (관련 문서 존재)**: 12/12 (100%)
-- **Self-Correction 발동**: 0회 — 모든 질문에서 1차 검색 성공
-- **리포트 생성 성공 (report_len > 0)**: 12/12
-- **출처 URL 존재**: 12/12
+- hit ≥ 2 (검색 파이프라인 작동 여부): 12/12
+- report_len > 0 (리포트 생성 성공): 12/12
+- 출처 URL 존재 (source citation): 12/12
+- Self-Correction 로직 연결 확인: ✅ (발동 시나리오는 별도 테스트 예정)
 
-### rl_risk_tags 분석
+## ❌ 이번 평가에서 무효한 항목
 
-모든 질문에서 `equity_market`만 반환됨. **원인**: smoke test는 급등락·실적쇼크·규제변경 3개 RSS 피드만 수집(31건)하여 ChromaDB가 equity_market 위주로만 채워짐. `macro_rate`/`geopolitical_fx` 질문(Q01, Q05, Q06, Q08, Q11)은 관련 뉴스가 부족해 equity 뉴스가 top-5에 들어와 태그가 밀림.
+- `rl_tags` 분류 정확도: ChromaDB 데이터 편향으로 무효
+  - Q01·Q05·Q08·Q11 (macro_rate 관련 질문) → 실제로는 macro_rate_risk가 나와야 함
+  - Q06·Q07·Q10 (지정학/환율 관련 질문) → 실제로는 geopolitical_fx_risk가 나와야 함
 
-**개선 방향**: 금리·채권·물가 RSS 피드 추가 수집 또는 ECOS 이벤트를 ChromaDB에도 upsert.
+## 📋 다음 평가 계획 (전체 데이터 수집 완료 후)
 
-### Self-Correction 기준값
+- macro_rate 질문(Q01, Q05, Q08, Q11)에서 macro_rate_risk 태그 반환 확인
+- geopolitical_fx 질문(Q06, Q07, Q10)에서 geopolitical_fx_risk 태그 반환 확인
+- Self-Correction 발동: 좁은 쿼리(예: "2025년 특정 기업 HBM 실적")로 hit=0 시나리오 재현
 
-- 임계값 0.75: 모든 질문에서 min_dist ≤ 0.33 (여유 있음) → 재검색 불필요
-- 향후 테스트: DB를 비우고 매우 좁은 쿼리(예: "2025년 특정 기업 HBM 실적")로 hit=0 시나리오를 재현하면 Self-Correction 발동 확인 가능
+> 아래 항목은 실제 RAG 파이프라인을 실행한 후 직접 Y/N을 기재해야 합니다.
+> Claude Code가 자동으로 채울 수 없으며, RAG 담당자가 수동으로 작성합니다.
 
 ## 수동 검수 항목 (상위 5개)
 
