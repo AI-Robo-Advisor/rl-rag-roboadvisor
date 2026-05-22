@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 RAW_PATHS: list[Path] = [
-    Path("data/raw/gdelt/gdelt_events_2020_2025.parquet"),
-    Path("data/raw/fred/fred_events_2020_2025.parquet"),
+    Path("data/raw/gdelt/gdelt_events_2018_2025.parquet"),
+    Path("data/raw/fred/fred_events_2018_2025.parquet"),
     Path("data/raw/ecos/ecos_events_2018_2025.parquet"),
     Path("data/raw/manual_seed/manual_seed_events.parquet"),
 ]
