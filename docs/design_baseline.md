@@ -167,6 +167,12 @@
 - A/C: `pytest tests/test_build_risk_parquet.py`가 통과해야 함. 다른 sanity 케이스(2022-06-15 / 2022-02-24 / 2022-10-07)는 그대로 통과 유지.
 - B: 데이터 재생성 후 §5의 SHAP 시점 risk 값들이 모두 변하므로 보고서·산출물 동반 재생성 필요.
 
+### Resolution (2026-05-23)
+
+- **C 채택**. `tests/test_build_risk_parquet.py::test_dominant_axis`의 기대값을 set으로 변경하고, 2020-03-16은 `{"macro","equity","geo"}`로 명시. 다른 3개 sanity 일자(2022-06-15 macro / 2022-02-24 geo / 2022-10-07 geo)는 단일 set 유지.
+- `pytest tests/test_build_risk_parquet.py tests/test_risk.py tests/test_shap.py` → **35 passed**.
+- 데이터 알고리즘·parquet·보고서·다른 산출물 변경 없음.
+
 ---
 
 ## 5. 워크트리 상태(부수 이슈)
@@ -203,7 +209,7 @@
 | 3. backtest 윈도우 분리 | [x] | [ ] | — | A=문서 정정 / B=파일 분리 추가 | 적용(로컬 prompt.md 정정 예정) |
 | 4. 리스크 태그 명명 | [x] | [ ] | [ ] | A=이중 유지 / B=Full 통일 / C=Short 통일 | **적용 완료**(commit `624cd70`) |
 | 5. 워크트리 정리 | [x] | [ ] | [c] | A=분리 커밋 / B=일괄 / C=일부 ignore (백업) | **적용 완료**(분리 커밋 + 백업 .gitignore) |
-| 5-pre. test_dominant_axis 동률 | [ ] | [ ] | [ ] | A=테스트 동률 허용 / B=데이터 알고리즘 변경 / C=다축 set 기대 | **승인 대기** |
+| 5-pre. test_dominant_axis 동률 | [ ] | [ ] | [x] | A=테스트 동률 허용 / B=데이터 알고리즘 변경 / C=다축 set 기대 | **적용 완료** |
 
 > **승인 시 다음 작업 순서**
 > 1. 본 문서 커밋(설계 기준 동결).

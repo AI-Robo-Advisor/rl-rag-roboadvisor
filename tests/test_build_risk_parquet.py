@@ -38,14 +38,16 @@ def test_row_count(daily: pd.DataFrame) -> None:
 
 
 # ── sanity: 알려진 고위험 날짜 dominant axis ────────────────────────
+# 기대값을 set으로 받아 multi-axis 충격일(동률 1.0) 케이스도 명시한다.
+# (design_baseline.md §5-pre 결정 C)
 
-@pytest.mark.parametrize("date_str,expected_dominant", [
-    ("2022-06-15", "macro"),    # FOMC 자이언트 스텝
-    ("2020-03-16", "equity"),   # 코로나 패닉
-    ("2022-02-24", "geo"),      # 러-우 전쟁 개전
-    ("2022-10-07", "geo"),      # 미국 반도체 수출 규제
+@pytest.mark.parametrize("date_str,expected_top", [
+    ("2022-06-15", {"macro"}),                  # FOMC 자이언트 스텝 — macro 단독 우세
+    ("2020-03-16", {"macro", "equity", "geo"}), # 코로나 패닉 — 다축 동시 충격(전 축 1.0 포화)
+    ("2022-02-24", {"geo"}),                    # 러-우 전쟁 개전
+    ("2022-10-07", {"geo"}),                    # 미국 반도체 수출 규제
 ])
-def test_dominant_axis(daily: pd.DataFrame, date_str: str, expected_dominant: str) -> None:
+def test_dominant_axis(daily: pd.DataFrame, date_str: str, expected_top: set[str]) -> None:
     ts = pd.Timestamp(date_str)
     assert ts in daily.index, f"{date_str} 날짜가 parquet에 없음"
     row = daily.loc[ts]
@@ -54,9 +56,10 @@ def test_dominant_axis(daily: pd.DataFrame, date_str: str, expected_dominant: st
         "equity": float(row["risk_equity"]),
         "geo":    float(row["risk_geo"]),
     }
-    dominant = max(vals, key=vals.__getitem__)
-    assert dominant == expected_dominant, (
-        f"{date_str}: dominant={dominant} (기대={expected_dominant}), vals={vals}"
+    top_value = max(vals.values())
+    top_keys = {k for k, v in vals.items() if v == top_value}
+    assert top_keys == expected_top, (
+        f"{date_str}: top_keys={top_keys} (기대={expected_top}), vals={vals}"
     )
 
 
