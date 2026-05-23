@@ -59,7 +59,7 @@ obs_dim = (n_assets * lookback)  # 수익률:        10 * 30 = 300
 | `risk_equity` | float32 | equity_market_risk 이벤트 Exponential Decay 누적 (0~1) |
 | `risk_geo` | float32 | geopolitical_fx_risk 이벤트 Exponential Decay 누적 (0~1) |
 
-**Decay 기간**: macro=30일, equity=10일, geo=60일  
+**Decay 기간**: macro=30일, equity=10일, geo=20일  
 **집계 방식**: 동일 축의 여러 이벤트 → max pooling (포화 방지)
 
 ---
