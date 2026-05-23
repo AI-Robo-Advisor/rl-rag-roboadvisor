@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from apps.api.routers import backtest, explain, health, optimize, research
+from apps.api.services import warm_runtime_caches
 
 app = FastAPI(
     title="AI Robo Advisor API",
@@ -15,6 +16,8 @@ app.include_router(optimize.router)
 app.include_router(explain.router)
 app.include_router(research.router)
 app.include_router(backtest.router)
+
+warm_runtime_caches()
 
 
 @app.get("/")
