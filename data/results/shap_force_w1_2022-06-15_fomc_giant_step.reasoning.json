@@ -1,0 +1,142 @@
+[
+  {
+    "date": "2022-06-13",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 +23.9bp",
+    "title": "국고채 3년 상승 23.9bp"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 10년 +15.9bp",
+    "title": "국고채 10년 상승 15.9bp"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 및 경제적 취약성 언급, 지정학적 리스크",
+    "title": "www.iflr.com | SANCTIONS"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change +28bp",
+    "title": "US 10Y Treasury Yield +28bp"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "manual_seed",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "CPI 8.6% 40년 최고 시장 충격 S&P -3.9%",
+    "title": "미국 CPI 8.6% — 40년 만의 최고치"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change +1.24%",
+    "title": "USD/KRW +1.24%"
+  },
+  {
+    "date": "2022-06-13",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -3.52%",
+    "title": "KOSPI 급락 -3.52%"
+  },
+  {
+    "date": "2022-06-14",
+    "source": "ecos",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "원/달러 +1.58% 급변",
+    "title": "원/달러 환율 급등 (+1.58%)"
+  },
+  {
+    "date": "2022-06-14",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 경제 불확실성 신호",
+    "title": "www.dw.com | EPU_ECONOMY"
+  },
+  {
+    "date": "2022-06-14",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 지정학적 리스크 신호",
+    "title": "www.onenewspage.com | BAN"
+  },
+  {
+    "date": "2022-06-14",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 지정학적 긴장 가능성",
+    "title": "www.onenewspage.com | BAN"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 +11.8bp",
+    "title": "국고채 3년 상승 11.8bp"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -16bp",
+    "title": "US 10Y Treasury Yield -16bp"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -1.83%",
+    "title": "KOSPI 급락 -1.83%"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "manual_seed",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "자이언트 스텝 22년만의 충격 채권 주식 동반 하락",
+    "title": "FOMC 0.75%p 자이언트 스텝 — 22년 만의 충격"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change -3.0%",
+    "title": "WTI Oil -3.0%"
+  },
+  {
+    "date": "2022-06-15",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 언급, 지정학적 리스크 신호",
+    "title": "www.onenewspage.com | TAX_WORLDLANGUAGES_RUSSIA"
+  },
+  {
+    "date": "2022-06-16",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "Fed rate change +0.75%p",
+    "title": "Fed Funds Target Rate +0.75%p"
+  },
+  {
+    "date": "2022-06-17",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 지정학적 리스크 신호",
+    "title": "www.dw.com | TAX_WORLDLANGUAGES_RUSSIA"
+  },
+  {
+    "date": "2022-06-17",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change -6.8%",
+    "title": "WTI Oil -6.8%"
+  }
+]

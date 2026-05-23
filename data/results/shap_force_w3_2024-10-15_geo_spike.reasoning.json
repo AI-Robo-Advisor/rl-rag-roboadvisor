@@ -1,0 +1,23 @@
+[
+  {
+    "date": "2024-10-15",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change -6.4%",
+    "title": "WTI Oil -6.4%"
+  },
+  {
+    "date": "2024-10-15",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change +1.07%",
+    "title": "USD/KRW +1.07%"
+  },
+  {
+    "date": "2024-10-15",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "불안정한 상황, 전쟁 및 제재 관련 언급",
+    "title": "news.mail.ru | UNREST_BELLIGERENT"
+  }
+]

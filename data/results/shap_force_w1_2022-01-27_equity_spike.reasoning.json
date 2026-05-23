@@ -1,0 +1,44 @@
+[
+  {
+    "date": "2022-01-25",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 지정학적 리스크 가능성",
+    "title": "forextv.com | SANCTIONS"
+  },
+  {
+    "date": "2022-01-25",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "갈등 및 폭력 관련 언급, 지정학적 리스크 존재",
+    "title": "news.yam.md | SOC_POINTSOFINTEREST_PRISON"
+  },
+  {
+    "date": "2022-01-25",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "갈등 및 폭력 관련 언급, 지정학적 리스크 존재",
+    "title": "news.yam.md | SOC_POINTSOFINTEREST_PRISON"
+  },
+  {
+    "date": "2022-01-25",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -2.56%",
+    "title": "KOSPI 급락 -2.56%"
+  },
+  {
+    "date": "2022-01-26",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "무역 분쟁 언급, 지정학적 리스크 가능성",
+    "title": "www.scmp.com | ECON_TRADE_DISPUTE"
+  },
+  {
+    "date": "2022-01-27",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -3.50%",
+    "title": "KOSPI 급락 -3.50%"
+  }
+]
