@@ -47,7 +47,7 @@ DATE_END   = "2025-12-31"
 DECAY_PERIODS: Dict[str, int] = {
     "macro_rate_risk":      30,
     "equity_market_risk":   10,
-    "geopolitical_fx_risk": 60,
+    "geopolitical_fx_risk": 20,
 }
 
 # 입력 컬럼명 (팀원 parquet의 라벨 컬럼)
@@ -78,23 +78,37 @@ SANITY_DATES: Dict[str, str] = {
 # 데이터 로드
 # ─────────────────────────────────────────────
 
-def load_events() -> pd.DataFrame:
-    """존재하는 raw parquet 파일들을 통합해 반환합니다."""
-    frames: List[pd.DataFrame] = []
+UNIFIED_PATH = Path("data/processed/unified_events.parquet")
 
+
+def load_events() -> pd.DataFrame:
+    """이벤트를 로드합니다.
+
+    unified_events.parquet이 있으면 우선 사용 (LLM 라벨 포함).
+    없으면 raw parquet 폴백 (LLM 라벨 미반영).
+    """
+    if UNIFIED_PATH.exists():
+        df = pd.read_parquet(UNIFIED_PATH)
+        df["date"] = pd.to_datetime(df["date"])
+        for col in SEVERITY_COLS.values():
+            if col not in df.columns:
+                df[col] = 0.0
+        df = df[df["date"].notna()]
+        df = df[(df["date"] >= DATE_START) & (df["date"] <= DATE_END)]
+        logger.info("unified 로드: %s (%d건)", UNIFIED_PATH.name, len(df))
+        return df
+
+    logger.info("unified parquet 없음 — raw parquet 폴백")
+    frames: List[pd.DataFrame] = []
     for path in RAW_PATHS:
         if not path.exists():
             logger.info("스킵 (파일 없음): %s", path)
             continue
-
         df = pd.read_parquet(path)
         df["date"] = pd.to_datetime(df["date"])
-
-        # 필수 컬럼 확인 및 보완
         for col in SEVERITY_COLS.values():
             if col not in df.columns:
                 df[col] = 0.0
-
         frames.append(df)
         logger.info("로드: %s (%d건)", path.name, len(df))
 
