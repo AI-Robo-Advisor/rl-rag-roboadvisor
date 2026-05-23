@@ -11,7 +11,7 @@ ChromaDB `finance_news` 컬렉션에는 **두 경로**로 데이터가 유입된
 ```
 [경로 A] 과거 이벤트 (1회성 배치)
   unified_events.parquet
-  (FRED + ECOS + manual_seed, 1,226건)
+  (FRED + ECOS + manual_seed, 1,226건 — GDELT 1,197건 제외, 전체 parquet은 2,423건)
         │
         ▼
   build_chroma_from_parquet.py --clear
@@ -173,7 +173,7 @@ docker compose exec api PYTHONPATH=. python -m src.agent.news_collector
 ```
 
 > **경진대회 데모 환경에서는 자동화 불필요.**
-> 과거 8년치 데이터(1,226건)가 ChromaDB에 적재된 상태면 RAG는 정상 동작한다.
+> 과거 8년치 데이터(1,226건, GDELT 제외)가 ChromaDB에 적재된 상태면 RAG는 정상 동작한다.
 > 실시간 최신성이 필수인 서비스가 아니므로 배포 시 1회 실행으로 충분하다.
 
 ---
