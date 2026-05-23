@@ -116,7 +116,7 @@ self.current_mdd = (
 | 현재 포트폴리오 비중 | 10 |
 | RSI (14일) | 10 |
 | MACD signal | 10 |
-| risk_vector (규제변경 / 실적쇼크 / 급등락) | 3 |
+| risk_vector (macro_rate_risk / equity_market_risk / geopolitical_fx_risk) | 3 |
 | **합계** | **333** |
 
 거래비용 설정 (`env.py:55-57`):
