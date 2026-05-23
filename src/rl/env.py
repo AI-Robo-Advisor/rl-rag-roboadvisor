@@ -1,6 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+
+_DEFAULT_RISK_PATH = Path("data/processed/risk_vectors_daily.parquet")
 
 
 class PortfolioEnv(gym.Env):
@@ -19,6 +23,7 @@ class PortfolioEnv(gym.Env):
         lambda_mdd=1.0,
         volatility_window=20,
         risk_vector=None,
+        risk_series=None,
         ):
         """PortfolioEnv를 초기화합니다.
 
@@ -31,6 +36,9 @@ class PortfolioEnv(gym.Env):
             volatility_window: Sharpe 보상 계산에 사용할 변동성 추정 윈도우입니다.
             risk_vector: RAG 리스크 태그 벡터입니다. shape=(3,), 순서: [macro_rate_risk, equity_market_risk, geopolitical_fx_risk].
                 None이면 np.zeros(3, dtype=np.float32)로 초기화됩니다.
+                risk_series가 지정된 경우 step별 자동 조회로 대체됩니다.
+            risk_series: 날짜 인덱스 DataFrame (risk_macro, risk_equity, risk_geo 컬럼).
+                train/backtest 루프용. None이면 risk_vector 고정값 사용 (실시간 RAG용).
 
         Raises:
             ValueError: 지원하지 않는 reward_type이 입력된 경우 발생합니다.
@@ -80,6 +88,26 @@ class PortfolioEnv(gym.Env):
                     f"risk_vector must have shape (3,), got {rv.shape}"
                 )
             self.risk_vector = rv
+
+        # 날짜별 risk 배열 (train/backtest용): features_df 인덱스에 맞춰 ffill 정렬
+        # risk_series 미전달 시 기본 경로에서 자동 로드 (backtest.py 수정 불필요)
+        # set_risk_vector() 고정값은 risk_array가 None일 때만 사용 (실시간 RAG용)
+        # risk_vector가 명시 전달된 경우(실시간 RAG optimize)는 자동 로드 하지 않음
+        if risk_series is None and risk_vector is None and _DEFAULT_RISK_PATH.exists():
+            import pandas as pd
+            _df = pd.read_parquet(_DEFAULT_RISK_PATH)
+            _df["date"] = pd.to_datetime(_df["date"])
+            risk_series = _df.set_index("date")
+
+        if risk_series is not None:
+            risk_aligned = (
+                risk_series[["risk_macro", "risk_equity", "risk_geo"]]
+                .reindex(self.features_df.index, method="ffill")
+                .fillna(0.0)
+            )
+            self.risk_array: np.ndarray | None = risk_aligned.values.astype(np.float32)
+        else:
+            self.risk_array = None
 
         # returns window + current weights + RSI + MACD_signal + risk_vector(3)
         obs_dim = (self.lookback + 3) * self.n_assets + len(self.risk_vector)
@@ -151,6 +179,9 @@ class PortfolioEnv(gym.Env):
         # macd = self.features_df[macd_cols].iloc[self.current_step].values
         macd_signal = self.features_df[macd_signal_cols].iloc[self.current_step].values
 
+        # risk_array가 있으면 현재 step의 날짜별 risk 사용, 없으면 set_risk_vector() 고정값 사용
+        risk = self.risk_array[self.current_step] if self.risk_array is not None else self.risk_vector
+
         obs = np.concatenate(
             [
                 returns_window.flatten(),
@@ -158,7 +189,7 @@ class PortfolioEnv(gym.Env):
                 rsi,
                 # macd,
                 macd_signal,
-                self.risk_vector,
+                risk,
             ]
         ).astype(np.float32)
 
