@@ -1,0 +1,30 @@
+[
+  {
+    "date": "2025-02-01",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "기준금리 -0.25%p 변경",
+    "title": "한국은행 기준금리 인하 0.25%p"
+  },
+  {
+    "date": "2025-02-01",
+    "source": "manual_seed",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "캐나다 멕시코 25% 관세 무역전쟁 공급망 충격",
+    "title": "트럼프 캐나다·멕시코 25% 관세 발표"
+  },
+  {
+    "date": "2025-02-03",
+    "source": "ecos",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "원/달러 +1.37% 급변",
+    "title": "원/달러 환율 급등 (+1.37%)"
+  },
+  {
+    "date": "2025-02-03",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -2.52%",
+    "title": "KOSPI 급락 -2.52%"
+  }
+]

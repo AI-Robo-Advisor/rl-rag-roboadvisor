@@ -1,0 +1,79 @@
+[
+  {
+    "date": "2024-07-31",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change +4.2%",
+    "title": "WTI Oil +4.2%"
+  },
+  {
+    "date": "2024-07-31",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change -1.13%",
+    "title": "USD/KRW -1.13%"
+  },
+  {
+    "date": "2024-08-02",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change -3.5%",
+    "title": "WTI Oil -3.5%"
+  },
+  {
+    "date": "2024-08-02",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -19bp",
+    "title": "US 10Y Treasury Yield -19bp"
+  },
+  {
+    "date": "2024-08-02",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -3.65%",
+    "title": "KOSPI 급락 -3.65%"
+  },
+  {
+    "date": "2024-08-02",
+    "source": "ecos",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "원/달러 -1.03% 급변",
+    "title": "원/달러 환율 급락 (-1.03%)"
+  },
+  {
+    "date": "2024-08-02",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 및 갈등 관련 언급, 지정학적 리스크",
+    "title": "boxden.com | SANCTIONS"
+  },
+  {
+    "date": "2024-08-05",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 -13.3bp",
+    "title": "국고채 3년 하락 13.3bp"
+  },
+  {
+    "date": "2024-08-05",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -8.77%",
+    "title": "KOSPI 급락 -8.77%"
+  },
+  {
+    "date": "2024-08-05",
+    "source": "fred",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "VIX spike to 38.6",
+    "title": "VIX spiked to 38.6"
+  },
+  {
+    "date": "2024-08-05",
+    "source": "manual_seed",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "엔캐리 청산 닛케이 -12% VIX 65 코스피 서킷브레이커",
+    "title": "일본 닛케이 -12% — 역대 최대 단일 하락"
+  }
+]

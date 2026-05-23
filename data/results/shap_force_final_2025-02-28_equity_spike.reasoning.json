@@ -1,0 +1,16 @@
+[
+  {
+    "date": "2025-02-25",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -10bp",
+    "title": "US 10Y Treasury Yield -10bp"
+  },
+  {
+    "date": "2025-02-28",
+    "source": "ecos",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "KOSPI -3.39%",
+    "title": "KOSPI 급락 -3.39%"
+  }
+]

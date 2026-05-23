@@ -1,0 +1,93 @@
+[
+  {
+    "date": "2023-03-07",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "WTI oil daily change -3.7%",
+    "title": "WTI Oil -3.7%"
+  },
+  {
+    "date": "2023-03-08",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change +1.62%",
+    "title": "USD/KRW +1.62%"
+  },
+  {
+    "date": "2023-03-08",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 +12.9bp",
+    "title": "국고채 3년 상승 12.9bp"
+  },
+  {
+    "date": "2023-03-09",
+    "source": "ecos",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "원/달러 +1.57% 급변",
+    "title": "원/달러 환율 급등 (+1.57%)"
+  },
+  {
+    "date": "2023-03-10",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 10년 -15.5bp",
+    "title": "국고채 10년 하락 15.5bp"
+  },
+  {
+    "date": "2023-03-10",
+    "source": "manual_seed",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "SVB 파산 패닉 VIX 28 은행주 폭락",
+    "title": "실리콘밸리은행(SVB) 파산 — 은행 위기 촉발"
+  },
+  {
+    "date": "2023-03-10",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -23bp",
+    "title": "US 10Y Treasury Yield -23bp"
+  },
+  {
+    "date": "2023-03-10",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 -15.5bp",
+    "title": "국고채 3년 하락 15.5bp"
+  },
+  {
+    "date": "2023-03-13",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 10년 -17.9bp",
+    "title": "국고채 10년 하락 17.9bp"
+  },
+  {
+    "date": "2023-03-13",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -15bp",
+    "title": "US 10Y Treasury Yield -15bp"
+  },
+  {
+    "date": "2023-03-13",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change -1.82%",
+    "title": "USD/KRW -1.82%"
+  },
+  {
+    "date": "2023-03-13",
+    "source": "fred",
+    "primary_tag": "equity_market_risk",
+    "reasoning": "VIX spike to 26.5",
+    "title": "VIX spiked to 26.5"
+  },
+  {
+    "date": "2023-03-13",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 -26.8bp",
+    "title": "국고채 3년 하락 26.8bp"
+  }
+]

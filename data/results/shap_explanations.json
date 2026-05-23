@@ -1,0 +1,1179 @@
+[
+  {
+    "status": "ready",
+    "date": "2022-01-27",
+    "target_date": "2022-01-27",
+    "base_value": 28.239698,
+    "prediction": 50.843689,
+    "feature_contributions": [
+      {
+        "feature": "069500_MACD_signal",
+        "value": -2.246202,
+        "contribution": 8.808621
+      },
+      {
+        "feature": "EEM_return_t-12",
+        "value": -0.006496,
+        "contribution": 4.612521
+      },
+      {
+        "feature": "069500_return_t-18",
+        "value": -0.511736,
+        "contribution": 4.096317
+      },
+      {
+        "feature": "VNQ_return_t-16",
+        "value": -0.115256,
+        "contribution": 3.643353
+      },
+      {
+        "feature": "GLD_return_t-29",
+        "value": -1.052601,
+        "contribution": -1.941365
+      },
+      {
+        "feature": "risk_equity_market_risk",
+        "value": 1.0,
+        "contribution": 1.871983
+      },
+      {
+        "feature": "069500_return_t-21",
+        "value": 0.098478,
+        "contribution": 0.844947
+      },
+      {
+        "feature": "SPY_return_t-13",
+        "value": -0.344239,
+        "contribution": 0.825336
+      }
+    ],
+    "feature_names": [
+      "069500_MACD_signal",
+      "EEM_return_t-12",
+      "069500_return_t-18",
+      "VNQ_return_t-16",
+      "GLD_return_t-29",
+      "risk_equity_market_risk",
+      "069500_return_t-21",
+      "SPY_return_t-13"
+    ],
+    "shap_values": [
+      8.808621,
+      4.612521,
+      4.096317,
+      3.643353,
+      -1.941365,
+      1.871983,
+      0.844947,
+      0.825336
+    ],
+    "reasoning_context": [
+      {
+        "date": "2022-01-25",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 지정학적 리스크 가능성",
+        "title": "forextv.com | SANCTIONS"
+      },
+      {
+        "date": "2022-01-25",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "갈등 및 폭력 관련 언급, 지정학적 리스크 존재",
+        "title": "news.yam.md | SOC_POINTSOFINTEREST_PRISON"
+      },
+      {
+        "date": "2022-01-25",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "갈등 및 폭력 관련 언급, 지정학적 리스크 존재",
+        "title": "news.yam.md | SOC_POINTSOFINTEREST_PRISON"
+      },
+      {
+        "date": "2022-01-25",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -2.56%",
+        "title": "KOSPI 급락 -2.56%"
+      },
+      {
+        "date": "2022-01-26",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "무역 분쟁 언급, 지정학적 리스크 가능성",
+        "title": "www.scmp.com | ECON_TRADE_DISPUTE"
+      },
+      {
+        "date": "2022-01-27",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -3.50%",
+        "title": "KOSPI 급락 -3.50%"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2022-01-27, top_k=8).",
+    "window": "w1",
+    "label": "equity_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2022-02-04",
+    "target_date": "2022-02-04",
+    "base_value": 33.113398,
+    "prediction": 66.8787,
+    "feature_contributions": [
+      {
+        "feature": "114260_return_t-30",
+        "value": 1.231164,
+        "contribution": 6.929206
+      },
+      {
+        "feature": "QQQ_return_t-14",
+        "value": 0.882505,
+        "contribution": 4.257449
+      },
+      {
+        "feature": "069500_return_t-29",
+        "value": 0.170089,
+        "contribution": 4.230038
+      },
+      {
+        "feature": "IWM_return_t-27",
+        "value": 1.615815,
+        "contribution": 3.399311
+      },
+      {
+        "feature": "EEM_return_t-1",
+        "value": 1.724884,
+        "contribution": 3.309658
+      },
+      {
+        "feature": "VNQ_return_t-14",
+        "value": 0.0548,
+        "contribution": 3.109146
+      },
+      {
+        "feature": "EFA_return_t-20",
+        "value": 0.425777,
+        "contribution": 2.803802
+      },
+      {
+        "feature": "SPY_return_t-3",
+        "value": -0.417459,
+        "contribution": 2.747469
+      }
+    ],
+    "feature_names": [
+      "114260_return_t-30",
+      "QQQ_return_t-14",
+      "069500_return_t-29",
+      "IWM_return_t-27",
+      "EEM_return_t-1",
+      "VNQ_return_t-14",
+      "EFA_return_t-20",
+      "SPY_return_t-3"
+    ],
+    "shap_values": [
+      6.929206,
+      4.257449,
+      4.230038,
+      3.399311,
+      3.309658,
+      3.109146,
+      2.803802,
+      2.747469
+    ],
+    "reasoning_context": [
+      {
+        "date": "2022-02-01",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "CPI YoY 3.8%",
+        "title": "한국 CPI YoY 3.8% (고인플레)"
+      },
+      {
+        "date": "2022-02-01",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "CPI YoY 7.6%",
+        "title": "US CPI YoY 7.6%"
+      },
+      {
+        "date": "2022-02-04",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 경제 불확실성 신호",
+        "title": "1prime.ru | EPU_ECONOMY"
+      },
+      {
+        "date": "2022-02-04",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "테러 및 정치적 폭력 관련, 지정학적 리스크",
+        "title": "ria.ru | TERROR"
+      },
+      {
+        "date": "2022-02-04",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change +11bp",
+        "title": "US 10Y Treasury Yield +11bp"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2022-02-04, top_k=8).",
+    "window": "w1",
+    "label": "geo_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2022-06-15",
+    "target_date": "2022-06-15",
+    "base_value": 39.768348,
+    "prediction": 27.771555,
+    "feature_contributions": [
+      {
+        "feature": "GLD_return_t-1",
+        "value": -0.90622,
+        "contribution": -14.568014
+      },
+      {
+        "feature": "TLT_return_t-15",
+        "value": 1.128217,
+        "contribution": 6.813972
+      },
+      {
+        "feature": "TLT_MACD_signal",
+        "value": -1.818597,
+        "contribution": 5.794856
+      },
+      {
+        "feature": "EFA_return_t-27",
+        "value": 0.573569,
+        "contribution": -5.169529
+      },
+      {
+        "feature": "TLT_return_t-16",
+        "value": 0.211739,
+        "contribution": 4.304403
+      },
+      {
+        "feature": "SPY_return_t-13",
+        "value": -0.618264,
+        "contribution": -4.012725
+      },
+      {
+        "feature": "EEM_return_t-13",
+        "value": -1.169385,
+        "contribution": -2.55741
+      },
+      {
+        "feature": "114260_return_t-9",
+        "value": -3.107775,
+        "contribution": -2.197766
+      }
+    ],
+    "feature_names": [
+      "GLD_return_t-1",
+      "TLT_return_t-15",
+      "TLT_MACD_signal",
+      "EFA_return_t-27",
+      "TLT_return_t-16",
+      "SPY_return_t-13",
+      "EEM_return_t-13",
+      "114260_return_t-9"
+    ],
+    "shap_values": [
+      -14.568014,
+      6.813972,
+      5.794856,
+      -5.169529,
+      4.304403,
+      -4.012725,
+      -2.55741,
+      -2.197766
+    ],
+    "reasoning_context": [
+      {
+        "date": "2022-06-13",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 +23.9bp",
+        "title": "국고채 3년 상승 23.9bp"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 10년 +15.9bp",
+        "title": "국고채 10년 상승 15.9bp"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 및 경제적 취약성 언급, 지정학적 리스크",
+        "title": "www.iflr.com | SANCTIONS"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change +28bp",
+        "title": "US 10Y Treasury Yield +28bp"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "manual_seed",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "CPI 8.6% 40년 최고 시장 충격 S&P -3.9%",
+        "title": "미국 CPI 8.6% — 40년 만의 최고치"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change +1.24%",
+        "title": "USD/KRW +1.24%"
+      },
+      {
+        "date": "2022-06-13",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -3.52%",
+        "title": "KOSPI 급락 -3.52%"
+      },
+      {
+        "date": "2022-06-14",
+        "source": "ecos",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "원/달러 +1.58% 급변",
+        "title": "원/달러 환율 급등 (+1.58%)"
+      },
+      {
+        "date": "2022-06-14",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 경제 불확실성 신호",
+        "title": "www.dw.com | EPU_ECONOMY"
+      },
+      {
+        "date": "2022-06-14",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 지정학적 리스크 신호",
+        "title": "www.onenewspage.com | BAN"
+      },
+      {
+        "date": "2022-06-14",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 지정학적 긴장 가능성",
+        "title": "www.onenewspage.com | BAN"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 +11.8bp",
+        "title": "국고채 3년 상승 11.8bp"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -16bp",
+        "title": "US 10Y Treasury Yield -16bp"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -1.83%",
+        "title": "KOSPI 급락 -1.83%"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "manual_seed",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "자이언트 스텝 22년만의 충격 채권 주식 동반 하락",
+        "title": "FOMC 0.75%p 자이언트 스텝 — 22년 만의 충격"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change -3.0%",
+        "title": "WTI Oil -3.0%"
+      },
+      {
+        "date": "2022-06-15",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 언급, 지정학적 리스크 신호",
+        "title": "www.onenewspage.com | TAX_WORLDLANGUAGES_RUSSIA"
+      },
+      {
+        "date": "2022-06-16",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "Fed rate change +0.75%p",
+        "title": "Fed Funds Target Rate +0.75%p"
+      },
+      {
+        "date": "2022-06-17",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 관련 언급, 지정학적 리스크 신호",
+        "title": "www.dw.com | TAX_WORLDLANGUAGES_RUSSIA"
+      },
+      {
+        "date": "2022-06-17",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change -6.8%",
+        "title": "WTI Oil -6.8%"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2022-06-15, top_k=8).",
+    "window": "w1",
+    "label": "fomc_giant_step"
+  },
+  {
+    "status": "ready",
+    "date": "2023-03-10",
+    "target_date": "2023-03-10",
+    "base_value": 45.506302,
+    "prediction": 39.880112,
+    "feature_contributions": [
+      {
+        "feature": "SPY_return_t-30",
+        "value": 0.736081,
+        "contribution": -12.833676
+      },
+      {
+        "feature": "114260_return_t-2",
+        "value": -2.434275,
+        "contribution": -6.482208
+      },
+      {
+        "feature": "SPY_return_t-4",
+        "value": 0.01144,
+        "contribution": 6.123794
+      },
+      {
+        "feature": "SPY_return_t-27",
+        "value": -0.90462,
+        "contribution": 4.385206
+      },
+      {
+        "feature": "069500_return_t-26",
+        "value": -1.19458,
+        "contribution": 4.385206
+      },
+      {
+        "feature": "IWM_MACD_signal",
+        "value": -1.365351,
+        "contribution": -2.932385
+      },
+      {
+        "feature": "EEM_return_t-25",
+        "value": 0.78998,
+        "contribution": 2.741315
+      },
+      {
+        "feature": "EEM_return_t-30",
+        "value": 0.567742,
+        "contribution": -2.630567
+      }
+    ],
+    "feature_names": [
+      "SPY_return_t-30",
+      "114260_return_t-2",
+      "SPY_return_t-4",
+      "SPY_return_t-27",
+      "069500_return_t-26",
+      "IWM_MACD_signal",
+      "EEM_return_t-25",
+      "EEM_return_t-30"
+    ],
+    "shap_values": [
+      -12.833676,
+      -6.482208,
+      6.123794,
+      4.385206,
+      4.385206,
+      -2.932385,
+      2.741315,
+      -2.630567
+    ],
+    "reasoning_context": [
+      {
+        "date": "2023-03-07",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change -3.7%",
+        "title": "WTI Oil -3.7%"
+      },
+      {
+        "date": "2023-03-08",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change +1.62%",
+        "title": "USD/KRW +1.62%"
+      },
+      {
+        "date": "2023-03-08",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 +12.9bp",
+        "title": "국고채 3년 상승 12.9bp"
+      },
+      {
+        "date": "2023-03-09",
+        "source": "ecos",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "원/달러 +1.57% 급변",
+        "title": "원/달러 환율 급등 (+1.57%)"
+      },
+      {
+        "date": "2023-03-10",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 10년 -15.5bp",
+        "title": "국고채 10년 하락 15.5bp"
+      },
+      {
+        "date": "2023-03-10",
+        "source": "manual_seed",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "SVB 파산 패닉 VIX 28 은행주 폭락",
+        "title": "실리콘밸리은행(SVB) 파산 — 은행 위기 촉발"
+      },
+      {
+        "date": "2023-03-10",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -23bp",
+        "title": "US 10Y Treasury Yield -23bp"
+      },
+      {
+        "date": "2023-03-10",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 -15.5bp",
+        "title": "국고채 3년 하락 15.5bp"
+      },
+      {
+        "date": "2023-03-13",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 10년 -17.9bp",
+        "title": "국고채 10년 하락 17.9bp"
+      },
+      {
+        "date": "2023-03-13",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -15bp",
+        "title": "US 10Y Treasury Yield -15bp"
+      },
+      {
+        "date": "2023-03-13",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change -1.82%",
+        "title": "USD/KRW -1.82%"
+      },
+      {
+        "date": "2023-03-13",
+        "source": "fred",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "VIX spike to 26.5",
+        "title": "VIX spiked to 26.5"
+      },
+      {
+        "date": "2023-03-13",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 -26.8bp",
+        "title": "국고채 3년 하락 26.8bp"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2023-03-10, top_k=8).",
+    "window": "w2",
+    "label": "equity_spike_svb"
+  },
+  {
+    "status": "ready",
+    "date": "2023-03-23",
+    "target_date": "2023-03-23",
+    "base_value": 42.354059,
+    "prediction": 57.213661,
+    "feature_contributions": [
+      {
+        "feature": "069500_return_t-14",
+        "value": 0.156707,
+        "contribution": 8.756709
+      },
+      {
+        "feature": "VNQ_return_t-12",
+        "value": -1.389374,
+        "contribution": 7.106367
+      },
+      {
+        "feature": "TLT_return_t-30",
+        "value": -0.705635,
+        "contribution": -6.03858
+      },
+      {
+        "feature": "IWM_RSI",
+        "value": 0.022682,
+        "contribution": 5.839853
+      },
+      {
+        "feature": "SPY_return_t-14",
+        "value": 1.058168,
+        "contribution": -5.038956
+      },
+      {
+        "feature": "SPY_return_t-23",
+        "value": -0.989788,
+        "contribution": -4.270572
+      },
+      {
+        "feature": "EEM_return_t-2",
+        "value": 0.576744,
+        "contribution": 3.411308
+      },
+      {
+        "feature": "EEM_return_t-8",
+        "value": 0.098207,
+        "contribution": 2.546737
+      }
+    ],
+    "feature_names": [
+      "069500_return_t-14",
+      "VNQ_return_t-12",
+      "TLT_return_t-30",
+      "IWM_RSI",
+      "SPY_return_t-14",
+      "SPY_return_t-23",
+      "EEM_return_t-2",
+      "EEM_return_t-8"
+    ],
+    "shap_values": [
+      8.756709,
+      7.106367,
+      -6.03858,
+      5.839853,
+      -5.038956,
+      -4.270572,
+      3.411308,
+      2.546737
+    ],
+    "reasoning_context": [
+      {
+        "date": "2023-03-20",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 -15.1bp",
+        "title": "국고채 3년 하락 15.1bp"
+      },
+      {
+        "date": "2023-03-21",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change +12bp",
+        "title": "US 10Y Treasury Yield +12bp"
+      },
+      {
+        "date": "2023-03-22",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -11bp",
+        "title": "US 10Y Treasury Yield -11bp"
+      },
+      {
+        "date": "2023-03-22",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 및 경제 불안정성 언급, 지정학적 리스크",
+        "title": "venezuelatoday.net | UNGP_FORESTS_RIVERS_OCEANS"
+      },
+      {
+        "date": "2023-03-23",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -10bp",
+        "title": "US 10Y Treasury Yield -10bp"
+      },
+      {
+        "date": "2023-03-23",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change -2.19%",
+        "title": "USD/KRW -2.19%"
+      },
+      {
+        "date": "2023-03-23",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "Fed rate change +0.25%p",
+        "title": "Fed Funds Target Rate +0.25%p"
+      },
+      {
+        "date": "2023-03-24",
+        "source": "ecos",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "원/달러 -1.52% 급변",
+        "title": "원/달러 환율 급락 (-1.52%)"
+      },
+      {
+        "date": "2023-03-24",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change +1.07%",
+        "title": "USD/KRW +1.07%"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2023-03-23, top_k=8).",
+    "window": "w2",
+    "label": "geo_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2024-08-02",
+    "target_date": "2024-08-02",
+    "base_value": 39.054668,
+    "prediction": 49.603058,
+    "feature_contributions": [
+      {
+        "feature": "EEM_return_t-2",
+        "value": 1.402786,
+        "contribution": 7.398177
+      },
+      {
+        "feature": "risk_equity_market_risk",
+        "value": 1.0,
+        "contribution": 6.24568
+      },
+      {
+        "feature": "QQQ_return_t-13",
+        "value": -0.019311,
+        "contribution": 4.01883
+      },
+      {
+        "feature": "EFA_return_t-25",
+        "value": 0.040495,
+        "contribution": -3.930554
+      },
+      {
+        "feature": "EEM_return_t-13",
+        "value": 0.367802,
+        "contribution": -2.970971
+      },
+      {
+        "feature": "QQQ_return_t-5",
+        "value": 0.545236,
+        "contribution": -2.933159
+      },
+      {
+        "feature": "VNQ_return_t-18",
+        "value": -0.020294,
+        "contribution": 1.271807
+      },
+      {
+        "feature": "EFA_return_t-20",
+        "value": 0.465663,
+        "contribution": 0.692346
+      }
+    ],
+    "feature_names": [
+      "EEM_return_t-2",
+      "risk_equity_market_risk",
+      "QQQ_return_t-13",
+      "EFA_return_t-25",
+      "EEM_return_t-13",
+      "QQQ_return_t-5",
+      "VNQ_return_t-18",
+      "EFA_return_t-20"
+    ],
+    "shap_values": [
+      7.398177,
+      6.24568,
+      4.01883,
+      -3.930554,
+      -2.970971,
+      -2.933159,
+      1.271807,
+      0.692346
+    ],
+    "reasoning_context": [
+      {
+        "date": "2024-07-31",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change +4.2%",
+        "title": "WTI Oil +4.2%"
+      },
+      {
+        "date": "2024-07-31",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change -1.13%",
+        "title": "USD/KRW -1.13%"
+      },
+      {
+        "date": "2024-08-02",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change -3.5%",
+        "title": "WTI Oil -3.5%"
+      },
+      {
+        "date": "2024-08-02",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -19bp",
+        "title": "US 10Y Treasury Yield -19bp"
+      },
+      {
+        "date": "2024-08-02",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -3.65%",
+        "title": "KOSPI 급락 -3.65%"
+      },
+      {
+        "date": "2024-08-02",
+        "source": "ecos",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "원/달러 -1.03% 급변",
+        "title": "원/달러 환율 급락 (-1.03%)"
+      },
+      {
+        "date": "2024-08-02",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "제재 및 갈등 관련 언급, 지정학적 리스크",
+        "title": "boxden.com | SANCTIONS"
+      },
+      {
+        "date": "2024-08-05",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "국고채 3년 -13.3bp",
+        "title": "국고채 3년 하락 13.3bp"
+      },
+      {
+        "date": "2024-08-05",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -8.77%",
+        "title": "KOSPI 급락 -8.77%"
+      },
+      {
+        "date": "2024-08-05",
+        "source": "fred",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "VIX spike to 38.6",
+        "title": "VIX spiked to 38.6"
+      },
+      {
+        "date": "2024-08-05",
+        "source": "manual_seed",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "엔캐리 청산 닛케이 -12% VIX 65 코스피 서킷브레이커",
+        "title": "일본 닛케이 -12% — 역대 최대 단일 하락"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2024-08-02, top_k=8).",
+    "window": "w3",
+    "label": "equity_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2024-10-15",
+    "target_date": "2024-10-15",
+    "base_value": 36.061539,
+    "prediction": 46.071716,
+    "feature_contributions": [
+      {
+        "feature": "EEM_return_t-26",
+        "value": 0.031381,
+        "contribution": 4.203497
+      },
+      {
+        "feature": "IWM_return_t-6",
+        "value": 0.365634,
+        "contribution": -2.281237
+      },
+      {
+        "feature": "EEM_return_t-13",
+        "value": 0.503153,
+        "contribution": 2.012783
+      },
+      {
+        "feature": "IWM_return_t-21",
+        "value": -1.036592,
+        "contribution": 1.956029
+      },
+      {
+        "feature": "VNQ_return_t-14",
+        "value": -0.228863,
+        "contribution": 1.797998
+      },
+      {
+        "feature": "IWM_return_t-27",
+        "value": -0.376016,
+        "contribution": 0.899208
+      },
+      {
+        "feature": "TLT_return_t-22",
+        "value": 0.487668,
+        "contribution": 0.899208
+      },
+      {
+        "feature": "GLD_return_t-9",
+        "value": -0.815541,
+        "contribution": 0.789782
+      }
+    ],
+    "feature_names": [
+      "EEM_return_t-26",
+      "IWM_return_t-6",
+      "EEM_return_t-13",
+      "IWM_return_t-21",
+      "VNQ_return_t-14",
+      "IWM_return_t-27",
+      "TLT_return_t-22",
+      "GLD_return_t-9"
+    ],
+    "shap_values": [
+      4.203497,
+      -2.281237,
+      2.012783,
+      1.956029,
+      1.797998,
+      0.899208,
+      0.899208,
+      0.789782
+    ],
+    "reasoning_context": [
+      {
+        "date": "2024-10-15",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "WTI oil daily change -6.4%",
+        "title": "WTI Oil -6.4%"
+      },
+      {
+        "date": "2024-10-15",
+        "source": "fred",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "USD/KRW daily change +1.07%",
+        "title": "USD/KRW +1.07%"
+      },
+      {
+        "date": "2024-10-15",
+        "source": "gdelt",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "불안정한 상황, 전쟁 및 제재 관련 언급",
+        "title": "news.mail.ru | UNREST_BELLIGERENT"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2024-10-15, top_k=8).",
+    "window": "w3",
+    "label": "geo_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2025-02-01",
+    "target_date": "2025-01-31",
+    "base_value": 16.759912,
+    "prediction": 40.881241,
+    "feature_contributions": [
+      {
+        "feature": "EFA_return_t-7",
+        "value": 1.238345,
+        "contribution": 4.549468
+      },
+      {
+        "feature": "SPY_return_t-30",
+        "value": -0.543065,
+        "contribution": 3.609731
+      },
+      {
+        "feature": "SPY_return_t-18",
+        "value": -0.045308,
+        "contribution": 3.605394
+      },
+      {
+        "feature": "069500_return_t-12",
+        "value": 0.034764,
+        "contribution": 3.601168
+      },
+      {
+        "feature": "EFA_return_t-14",
+        "value": 0.41605,
+        "contribution": 2.838929
+      },
+      {
+        "feature": "TLT_return_t-2",
+        "value": -0.673235,
+        "contribution": 2.443373
+      },
+      {
+        "feature": "VNQ_return_t-16",
+        "value": -0.416696,
+        "contribution": 2.031961
+      },
+      {
+        "feature": "GLD_return_t-28",
+        "value": 0.984231,
+        "contribution": 1.183615
+      }
+    ],
+    "feature_names": [
+      "EFA_return_t-7",
+      "SPY_return_t-30",
+      "SPY_return_t-18",
+      "069500_return_t-12",
+      "EFA_return_t-14",
+      "TLT_return_t-2",
+      "VNQ_return_t-16",
+      "GLD_return_t-28"
+    ],
+    "shap_values": [
+      4.549468,
+      3.609731,
+      3.605394,
+      3.601168,
+      2.838929,
+      2.443373,
+      2.031961,
+      1.183615
+    ],
+    "reasoning_context": [
+      {
+        "date": "2025-02-01",
+        "source": "ecos",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "기준금리 -0.25%p 변경",
+        "title": "한국은행 기준금리 인하 0.25%p"
+      },
+      {
+        "date": "2025-02-01",
+        "source": "manual_seed",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "캐나다 멕시코 25% 관세 무역전쟁 공급망 충격",
+        "title": "트럼프 캐나다·멕시코 25% 관세 발표"
+      },
+      {
+        "date": "2025-02-03",
+        "source": "ecos",
+        "primary_tag": "geopolitical_fx_risk",
+        "reasoning": "원/달러 +1.37% 급변",
+        "title": "원/달러 환율 급등 (+1.37%)"
+      },
+      {
+        "date": "2025-02-03",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -2.52%",
+        "title": "KOSPI 급락 -2.52%"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2025-01-31, top_k=8).",
+    "window": "final",
+    "label": "macro_geo_spike"
+  },
+  {
+    "status": "ready",
+    "date": "2025-02-28",
+    "target_date": "2025-02-28",
+    "base_value": 42.910882,
+    "prediction": 56.099239,
+    "feature_contributions": [
+      {
+        "feature": "EEM_return_t-4",
+        "value": -1.300983,
+        "contribution": 2.829496
+      },
+      {
+        "feature": "114260_return_t-24",
+        "value": 0.609059,
+        "contribution": 2.502751
+      },
+      {
+        "feature": "VNQ_return_t-22",
+        "value": -1.430459,
+        "contribution": 2.502751
+      },
+      {
+        "feature": "TLT_return_t-10",
+        "value": 1.565176,
+        "contribution": 2.502751
+      },
+      {
+        "feature": "GLD_return_t-16",
+        "value": 0.6302,
+        "contribution": 2.162893
+      },
+      {
+        "feature": "QQQ_return_t-19",
+        "value": -1.018507,
+        "contribution": 1.221755
+      },
+      {
+        "feature": "IWM_return_t-26",
+        "value": 1.311477,
+        "contribution": -0.346513
+      },
+      {
+        "feature": "VNQ_return_t-16",
+        "value": 1.106139,
+        "contribution": -0.187526
+      }
+    ],
+    "feature_names": [
+      "EEM_return_t-4",
+      "114260_return_t-24",
+      "VNQ_return_t-22",
+      "TLT_return_t-10",
+      "GLD_return_t-16",
+      "QQQ_return_t-19",
+      "IWM_return_t-26",
+      "VNQ_return_t-16"
+    ],
+    "shap_values": [
+      2.829496,
+      2.502751,
+      2.502751,
+      2.502751,
+      2.162893,
+      1.221755,
+      -0.346513,
+      -0.187526
+    ],
+    "reasoning_context": [
+      {
+        "date": "2025-02-25",
+        "source": "fred",
+        "primary_tag": "macro_rate_risk",
+        "reasoning": "10Y Treasury yield change -10bp",
+        "title": "US 10Y Treasury Yield -10bp"
+      },
+      {
+        "date": "2025-02-28",
+        "source": "ecos",
+        "primary_tag": "equity_market_risk",
+        "reasoning": "KOSPI -3.39%",
+        "title": "KOSPI 급락 -3.39%"
+      }
+    ],
+    "message": "PPO SHAP 분석 완료 (기준일: 2025-02-28, top_k=8).",
+    "window": "final",
+    "label": "equity_spike"
+  }
+]
