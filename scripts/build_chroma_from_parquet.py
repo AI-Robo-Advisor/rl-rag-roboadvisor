@@ -78,16 +78,14 @@ def _risk_label(row: pd.Series) -> str:
 
 
 def _category(row: pd.Series) -> str:
-    """primary_tag → ChromaDB category 문자열. 없으면 source 기반 기본값."""
+    """primary_tag → ChromaDB category 문자열. 없으면 source 기반 기본값.
+
+    raw 단계에서 primary_tag는 신버전(`_risk` suffix)으로 보장된다고 가정한다.
+    구버전이 들어오면 ChromaDB에 그대로 저장되므로 raw 단계에서 즉시 발견됨.
+    """
     ptag = str(row.get("primary_tag") or "").strip()
     if ptag and ptag != "none" and ptag != "nan":
-        # canonical suffix 보장 (old: macro_rate → macro_rate_risk)
-        mapping = {
-            "macro_rate":      "macro_rate_risk",
-            "equity_market":   "equity_market_risk",
-            "geopolitical_fx": "geopolitical_fx_risk",
-        }
-        return mapping.get(ptag, ptag)
+        return ptag
     # primary_tag 없으면 source 기반 fallback
     source = str(row.get("source") or "").lower()
     if source in ("fred", "ecos"):
