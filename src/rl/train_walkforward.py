@@ -10,6 +10,7 @@ from src.rl.env import PortfolioEnv
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
+RISK_VECTORS_PATH = Path("data/processed/risk_vectors_daily.parquet")
 SCALERS_DIR = Path("data/processed/scalers")
 MODELS_DIR = Path("models")
 TENSORBOARD_DIR = Path("logs/tensorboard")
@@ -45,6 +46,24 @@ WINDOWS = {
 }
 
 REWARD_TYPES = ["return", "sharpe", "mdd"]
+
+
+def load_risk_data() -> pd.DataFrame | None:
+    """risk_vectors_daily.parquet을 로드합니다.
+
+    Returns:
+        날짜 인덱스 DataFrame (risk_macro, risk_equity, risk_geo).
+        파일 없으면 None 반환 — obs risk 차원은 0으로 채워집니다.
+    """
+    if not RISK_VECTORS_PATH.exists():
+        print(
+            f"[경고] {RISK_VECTORS_PATH} 없음 — risk_vector는 0으로 채워집니다. "
+            "scripts/build_risk_parquet.py를 실행하세요."
+        )
+        return None
+    risk_df = pd.read_parquet(RISK_VECTORS_PATH)
+    risk_df["date"] = pd.to_datetime(risk_df["date"])
+    return risk_df.set_index("date")
 
 
 def load_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -150,6 +169,7 @@ def train_one_model(
     window: dict[str, str],
     reward_type: str,
     total_timesteps: int = TOTAL_TIMESTEPS,
+    risk_df: pd.DataFrame | None = None,
 ) -> None:
     """단일 reward/window 조합의 PPO 모델을 학습하고 저장합니다.
 
@@ -163,6 +183,7 @@ def train_one_model(
         window: 윈도우 날짜 정의 dict.
         reward_type: 보상함수 종류 ("return" | "sharpe" | "mdd").
         total_timesteps: PPO 총 학습 스텝 수.
+        risk_df: 날짜 인덱스 risk_vectors_daily DataFrame. None이면 risk 0으로 채워짐.
     """
     # 학습 구간 분리
     train_returns = returns_df.loc[window["train_start"]:window["train_end"]].copy()
@@ -174,11 +195,19 @@ def train_one_model(
     # 학습 구간 통계로 Z-score 정규화 + 통계 저장
     train_features, _ = normalize_features(train_raw, window_name)
 
+    # 학습 구간 risk_series 슬라이싱 (look-ahead 방지: train 구간만)
+    risk_series = (
+        risk_df.loc[window["train_start"]:window["train_end"]]
+        if risk_df is not None
+        else None
+    )
+
     env = PortfolioEnv(
         returns_df=train_returns,
         features_df=train_features,
         lookback=LOOKBACK,
         reward_type=reward_type,
+        risk_series=risk_series,
     )
     env = Monitor(env)
 
@@ -211,6 +240,7 @@ def main() -> None:
     SCALERS_DIR.mkdir(parents=True, exist_ok=True)
 
     returns_df, raw_features_df = load_training_data()
+    risk_df = load_risk_data()
 
     for reward_type in REWARD_TYPES:
         for window_name, window in WINDOWS.items():
@@ -221,6 +251,7 @@ def main() -> None:
                 window=window,
                 reward_type=reward_type,
                 total_timesteps=TOTAL_TIMESTEPS,
+                risk_df=risk_df,
             )
 
 
