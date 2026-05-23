@@ -1,8 +1,10 @@
 """
 구글 뉴스 RSS(메인) + 한국은행 ECOS(보조) 통합 수집 및 ChromaDB 저장.
 
-- 구글 뉴스 RSS: feedparser로 키워드 기반 수집 (API 키 불필요).
-  카테고리: 급등락 / 실적쇼크 / 규제변경
+- 구글 뉴스 RSS: feedparser로 편입 자산 10개 기반 수집 (API 키 불필요).
+  카테고리: 미국주식 / 글로벌시장 / 채권금리 / 금대체자산 / 한국시장
+  편입 자산: SPY·QQQ·IWM(미국주식), EFA·EEM(글로벌), TLT·114260(채권),
+             GLD·VNQ(대체자산), 069500(한국주식)
 - ECOS StatisticTableList: 통계표 메타데이터 (거시 지표 보조).
   BOK_API_KEY 필요. 없으면 자동 스킵.
 
@@ -34,9 +36,16 @@ logger = logging.getLogger(__name__)
 # 구글 뉴스 RSS 설정
 # ---------------------------------------------------------------------------
 GOOGLE_NEWS_FEEDS: Dict[str, str] = {
-    "급등락": "https://news.google.com/rss/search?q=주식+증시+급등+급락&hl=ko&gl=KR&ceid=KR:ko",
-    "실적쇼크": "https://news.google.com/rss/search?q=기업실적+어닝쇼크+실적발표&hl=ko&gl=KR&ceid=KR:ko",
-    "규제변경": "https://news.google.com/rss/search?q=금융규제+정책변경+금융당국&hl=ko&gl=KR&ceid=KR:ko",
+    # SPY·QQQ·IWM: 미국 대형·기술·소형주 ETF
+    "미국주식": "https://news.google.com/rss/search?q=미국증시+S%26P500+나스닥+뉴욕증시&hl=ko&gl=KR&ceid=KR:ko",
+    # EFA·EEM: 선진국·신흥국 ETF
+    "글로벌시장": "https://news.google.com/rss/search?q=신흥국증시+선진국주식+MSCI+글로벌시장&hl=ko&gl=KR&ceid=KR:ko",
+    # TLT·114260: 미국 장기채·KODEX 국고채 3년
+    "채권금리": "https://news.google.com/rss/search?q=미국국채+장기금리+금리+연준&hl=ko&gl=KR&ceid=KR:ko",
+    # GLD·VNQ: 금·리츠 ETF
+    "금대체자산": "https://news.google.com/rss/search?q=금시세+리츠+부동산+원자재&hl=ko&gl=KR&ceid=KR:ko",
+    # 069500·114260: KODEX 200·국고채 3년
+    "한국시장": "https://news.google.com/rss/search?q=코스피+한국증시+한국국채+코스닥&hl=ko&gl=KR&ceid=KR:ko",
 }
 
 GOOGLE_REQUEST_INTERVAL = 1.0  # 카테고리 간 요청 간격 (초)
@@ -136,7 +145,7 @@ def fetch_google_news_rss(
 
     Args:
         feed_url: 구글 뉴스 RSS URL (키워드 기반).
-        category: 뉴스 카테고리 ("급등락" / "실적쇼크" / "규제변경").
+        category: 뉴스 카테고리 ("미국주식" / "글로벌시장" / "채권금리" / "금대체자산" / "한국시장").
         limit:    최대 수집 건수.
 
     Returns:
