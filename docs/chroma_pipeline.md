@@ -135,16 +135,39 @@ GDELT는 ChromaDB에서 **영구 제외**. title/summary가 GKG 기계코드 나
 
 ## 4. 데이터 갱신 방법
 
+### 4-1. 서버 최초 배포 시 (필수)
+
+`chroma_db/`는 gitignore 대상이라 서버에 자동 배포되지 않는다.
+컨테이너 기동 후 아래 명령을 **서버에서 1회 실행**해야 RAG가 동작한다.
+
+```bash
+# api 컨테이너 기동 후
+docker compose exec api PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear
+```
+
+### 4-2. 로컬 개발 환경
+
 ```bash
 # 과거 데이터 재빌드 (unified_events 변경 시)
 PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear
 
-# 실시간 뉴스 수집 (일별 수동 or cron)
-PYTHONPATH=. python -m src.agent.news_collector
-
 # RAG 품질 검증
 PYTHONPATH=. python scripts/rag_eval.py
 ```
+
+### 4-3. 실시간 뉴스 수집 자동화
+
+**로컬 cron은 적합하지 않다.** 로컬 PC는 상시 켜져 있지 않아 실행 시점을 보장할 수 없다.
+자동화가 필요하다면 배포 서버에서 아래 방식 중 하나를 사용해야 한다.
+
+```bash
+# 서버에서 수동 실행 (현재 방식)
+docker compose exec api PYTHONPATH=. python -m src.agent.news_collector
+```
+
+> **경진대회 데모 환경에서는 자동화 불필요.**
+> 과거 8년치 데이터(1,226건)가 ChromaDB에 적재된 상태면 RAG는 정상 동작한다.
+> 실시간 최신성이 필수인 서비스가 아니므로 배포 시 1회 실행으로 충분하다.
 
 ---
 
@@ -154,5 +177,5 @@ PYTHONPATH=. python scripts/rag_eval.py
 |------|-----------|-----------|
 | GDELT ChromaDB 미포함 | GKG 기계코드 형식 | title/summary 자연어 재생성 후 포함 |
 | category 필드 불일치 | 경로 A/B 형식 다름 | new style 태그로 통일 |
-| 실시간 수집 자동화 없음 | 수동 실행 | cron 스케줄 추가 |
+| 실시간 수집 자동화 없음 | 서버 배포 후 수동 실행 | 배포 서버에 cron worker 컨테이너 추가 |
 | Q08·Q11 태그 정확도 낮음 | ECOS 통계 자연어 매칭 약함 | 요약 텍스트 보강 |
