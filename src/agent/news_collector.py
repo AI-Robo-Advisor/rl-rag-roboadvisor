@@ -219,6 +219,7 @@ def collect_google_news_and_store(
             if doc_id in ids:
                 continue
             doc_text = f"{item['title']} {item['summary']}"[:300]
+            risk = infer_risk_label(item["title"], item["summary"])
             meta: Dict[str, str] = {
                 "title": item["title"],
                 "summary": item["summary"],
@@ -226,6 +227,7 @@ def collect_google_news_and_store(
                 "date": item["date"],
                 "category": item["category"],
                 "source": item["source"],
+                "risk_label": risk,
             }
             documents.append(doc_text)
             metadatas.append(meta)
