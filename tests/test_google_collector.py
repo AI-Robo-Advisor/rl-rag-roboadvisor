@@ -40,12 +40,12 @@ def test_fetch_google_news_rss_mock():
 
     with patch("src.agent.news_collector.feedparser.parse", return_value=mock_feed):
         items = fetch_google_news_rss(
-            "https://news.google.com/rss/search?q=test", "실적쇼크", 5
+            "https://news.google.com/rss/search?q=test", "미국주식", 5
         )
 
     assert len(items) == 1
     assert "삼성전자" in items[0]["title"]
-    assert items[0]["category"] == "실적쇼크"
+    assert items[0]["category"] == "미국주식"
     assert items[0]["source"] == "google_news"
     assert items[0]["date"] == "2026-04-07"
     assert "<p>" not in items[0]["summary"]  # HTML 태그 제거 확인
