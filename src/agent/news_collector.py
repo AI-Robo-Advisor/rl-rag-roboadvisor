@@ -195,7 +195,10 @@ def collect_google_news_and_store(
     persist_dir: Optional[str] = None,
 ) -> int:
     """
-    구글 뉴스 RSS 3개 피드에서 뉴스를 수집하고 ChromaDB에 upsert합니다.
+    구글 뉴스 RSS 5개 카테고리에서 뉴스를 수집하고 ChromaDB에 upsert합니다.
+
+    카테고리: 미국주식 / 글로벌시장 / 채권금리 / 금대체자산 / 한국시장
+    (편입 자산 10종 기반 — GOOGLE_NEWS_FEEDS 참고)
 
     중복 방지: URL MD5 해시를 문서 ID로 사용.
     요청 간격: 카테고리 사이 1초 이상 유지.
