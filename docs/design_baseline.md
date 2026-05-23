@@ -136,6 +136,39 @@
 
 ---
 
+## 5-pre. 사전 발견 — test_dominant_axis 동률 처리
+
+### Fact
+
+- `tests/test_build_risk_parquet.py::test_dominant_axis[2020-03-16-equity]`가 실패 중.
+- 원인: 2020-03-16 시점에 max-pooling decay 결과가 `risk_macro=1.0`, `risk_equity=1.0`, `risk_geo=1.0`으로 **3축 모두 포화**.
+- 테스트는 Python `max(vals, key=vals.__getitem__)`로 dominant를 뽑는데, 동률이면 사전 삽입 순서(macro→equity→geo)의 첫 키가 반환됨 → 실제 결과 `macro`, 기대 `equity`.
+- `risk_vectors_daily.parquet`은 origin/dev 그대로(`git diff origin/dev` 비어 있음) — 본 PR의 변경과 무관한 사전 실패.
+
+### Conflict
+
+- **테스트 가정**: 한 날짜에 단일 dominant 축이 존재한다.
+- **데이터 현실**: 코로나 패닉 같은 다축 동시 충격일은 max-pooling 후 3축 모두 1.0으로 동률.
+- 두 사실이 충돌. "잘못된 이슈/설계" 후보로 분류.
+
+### Decision options
+
+- **A. 테스트를 동률 허용으로 수정** (권장 후보)
+  - `assert expected_dominant in {k for k,v in vals.items() if v == max(vals.values())}` 형태로 변경.
+  - 동률은 "강한 시그널"의 정답으로 인정.
+- **B. 데이터 집계 방식 변경**
+  - max-pooling 대신 weighted sum 또는 1.0 clamp 전 raw severity 보존 등으로 동률 회피.
+  - `build_risk_parquet.py` 알고리즘 변경 → parquet 재생성 → 보고서 §5 SHAP 수치까지 영향. 큰 변경.
+- **C. 기대값을 동률 다축으로 변경**
+  - `[("2020-03-16", {"macro","equity","geo"})]`처럼 set으로 받는 방식. A의 일반화 버전.
+
+### Verification
+
+- A/C: `pytest tests/test_build_risk_parquet.py`가 통과해야 함. 다른 sanity 케이스(2022-06-15 / 2022-02-24 / 2022-10-07)는 그대로 통과 유지.
+- B: 데이터 재생성 후 §5의 SHAP 시점 risk 값들이 모두 변하므로 보고서·산출물 동반 재생성 필요.
+
+---
+
 ## 5. 워크트리 상태(부수 이슈)
 
 ### Fact
@@ -163,13 +196,14 @@
 
 아래 표에 사용자(=프로젝트 오너)가 직접 X 표시 후 회신.
 
-| 항목 | A | B | C | 비고 |
-|------|---|---|---|------|
-| 1. SHAP 인터페이스 | [ ] | [ ] | — | A=문서 정정 / B=함수 확장 |
-| 2. reasoning 연결 표기 | [ ] | [ ] | — | A=완료 표기 / B=이슈 삭제 |
-| 3. backtest 윈도우 분리 | [ ] | [ ] | — | A=문서 정정 / B=파일 분리 추가 |
-| 4. 리스크 태그 명명 | [ ] | [ ] | [ ] | A=이중 유지 / B=Full 통일 / C=Short 통일 |
-| 5. 워크트리 정리 | [ ] | [ ] | [ ] | A=분리 커밋 / B=일괄 / C=일부 ignore |
+| 항목 | A | B | C | 비고 | 상태 |
+|------|---|---|---|------|------|
+| 1. SHAP 인터페이스 | [x] | [ ] | — | A=문서 정정 / B=함수 확장 | 적용(로컬 prompt.md 정정 예정) |
+| 2. reasoning 연결 표기 | [x] | [ ] | — | A=완료 표기 / B=이슈 삭제 | 적용(로컬 prompt.md 정정 예정) |
+| 3. backtest 윈도우 분리 | [x] | [ ] | — | A=문서 정정 / B=파일 분리 추가 | 적용(로컬 prompt.md 정정 예정) |
+| 4. 리스크 태그 명명 | [x] | [ ] | [ ] | A=이중 유지 / B=Full 통일 / C=Short 통일 | **적용 완료**(commit `624cd70`) |
+| 5. 워크트리 정리 | [x] | [ ] | [c] | A=분리 커밋 / B=일괄 / C=일부 ignore (백업) | **적용 완료**(분리 커밋 + 백업 .gitignore) |
+| 5-pre. test_dominant_axis 동률 | [ ] | [ ] | [ ] | A=테스트 동률 허용 / B=데이터 알고리즘 변경 / C=다축 set 기대 | **승인 대기** |
 
 > **승인 시 다음 작업 순서**
 > 1. 본 문서 커밋(설계 기준 동결).
