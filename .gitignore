@@ -40,6 +40,7 @@ chroma_db/
 CLAUDE.local.md
 GDELT.local.md
 agent.md
+prompt.md
 prompt.txt
 gdelt.json
 
