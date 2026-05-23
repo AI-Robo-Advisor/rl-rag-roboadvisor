@@ -1,0 +1,98 @@
+[
+  {
+    "name": "reward_function_comparison",
+    "f_statistic": 18.040523,
+    "p_value": 0.0,
+    "eta_squared": 0.014817,
+    "post_hoc": [
+      {
+        "group1": "PPO-mdd",
+        "group2": "PPO-return",
+        "meandiff": 0.0018,
+        "p_adj": 0.0002,
+        "reject": true
+      },
+      {
+        "group1": "PPO-mdd",
+        "group2": "PPO-sharpe",
+        "meandiff": 0.0026,
+        "p_adj": 0.0,
+        "reject": true
+      },
+      {
+        "group1": "PPO-return",
+        "group2": "PPO-sharpe",
+        "meandiff": 0.0008,
+        "p_adj": 0.1322,
+        "reject": false
+      }
+    ]
+  },
+  {
+    "name": "strategy_comparison",
+    "f_statistic": 57.141498,
+    "p_value": 0.0,
+    "eta_squared": 0.040522,
+    "post_hoc": [
+      {
+        "group1": "MVO",
+        "group2": "PPO",
+        "meandiff": 0.0032,
+        "p_adj": 0.0,
+        "reject": true
+      },
+      {
+        "group1": "MVO",
+        "group2": "동일비중",
+        "meandiff": 0.0001,
+        "p_adj": 0.9741,
+        "reject": false
+      },
+      {
+        "group1": "PPO",
+        "group2": "동일비중",
+        "meandiff": -0.0031,
+        "p_adj": 0.0,
+        "reject": true
+      }
+    ]
+  },
+  {
+    "name": "market_regime_comparison",
+    "f_statistic": 7.329351,
+    "p_value": 0.000673,
+    "eta_squared": 0.006902,
+    "post_hoc": [
+      {
+        "group1": "bull",
+        "group2": "rate_hike",
+        "meandiff": -0.0012,
+        "p_adj": 0.0077,
+        "reject": true
+      },
+      {
+        "group1": "bull",
+        "group2": "recovery",
+        "meandiff": 0.0002,
+        "p_adj": 0.8879,
+        "reject": false
+      },
+      {
+        "group1": "rate_hike",
+        "group2": "recovery",
+        "meandiff": 0.0014,
+        "p_adj": 0.0016,
+        "reject": true
+      }
+    ],
+    "interaction": {
+      "f_statistic": 0.139752,
+      "p_value": 0.967487,
+      "significant": false
+    },
+    "strategy_effect": {
+      "f_statistic": 38.78218,
+      "p_value": 0.0
+    }
+  }
+]

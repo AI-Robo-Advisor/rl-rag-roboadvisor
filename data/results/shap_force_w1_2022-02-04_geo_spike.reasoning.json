@@ -1,0 +1,37 @@
+[
+  {
+    "date": "2022-02-01",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "CPI YoY 3.8%",
+    "title": "한국 CPI YoY 3.8% (고인플레)"
+  },
+  {
+    "date": "2022-02-01",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "CPI YoY 7.6%",
+    "title": "US CPI YoY 7.6%"
+  },
+  {
+    "date": "2022-02-04",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 관련 언급, 경제 불확실성 신호",
+    "title": "1prime.ru | EPU_ECONOMY"
+  },
+  {
+    "date": "2022-02-04",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "테러 및 정치적 폭력 관련, 지정학적 리스크",
+    "title": "ria.ru | TERROR"
+  },
+  {
+    "date": "2022-02-04",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change +11bp",
+    "title": "US 10Y Treasury Yield +11bp"
+  }
+]

@@ -9,11 +9,16 @@
 
 ## 1. 명세 예시 ↔ 팀 3축 대응표
 
-| 과제 명세 예시 (자연어) | 팀 RL 축 | parquet 컬럼 | obs 순서 |
-|------------------------|----------|-------------|---------|
-| 금리 인상·인하, FOMC, Fed, CPI·PPI, 국채금리, 달러 강세, 한국은행 기준금리, 채권 가격 변동 | **macro_rate_risk** | `macro_rate_risk` | 0 |
-| 증시 급락·폭락, 경기침체 우려, 어닝쇼크, VIX 급등, 패닉셀, KOSPI 급락 | **equity_market_risk** | `equity_market_risk` | 1 |
-| 전쟁·지정학 갈등, 관세·무역 전쟁, 반도체 수출 규제, 공급망 충격, 환율 급변 | **geopolitical_fx_risk** | `geopolitical_fx_risk` | 2 |
+| 과제 명세 예시 (자연어) | 팀 RL 축 (Full form) | event parquet 컬럼 | daily decay 컬럼 | obs 순서 |
+|------------------------|---------------------|--------------------|------------------|---------|
+| 금리 인상·인하, FOMC, Fed, CPI·PPI, 국채금리, 달러 강세, 한국은행 기준금리, 채권 가격 변동 | **macro_rate_risk** | `macro_rate_risk` | `risk_macro` | 0 |
+| 증시 급락·폭락, 경기침체 우려, 어닝쇼크, VIX 급등, 패닉셀, KOSPI 급락 | **equity_market_risk** | `equity_market_risk` | `risk_equity` | 1 |
+| 전쟁·지정학 갈등, 관세·무역 전쟁, 반도체 수출 규제, 공급망 충격, 환율 급변 | **geopolitical_fx_risk** | `geopolitical_fx_risk` | `risk_geo` | 2 |
+
+> **Full vs Short — 의도된 이중 명명** (`docs/design_baseline.md` §4-A · `docs/labels_and_interfaces.md` §2-2)
+> - **Full** (`macro_rate_risk` 등): 이벤트 단위 severity(0 / 0.33 / 0.66 / 1.0)와 RL obs 슬롯 이름.
+> - **Short** (`risk_macro` 등): 일별 Exponential Decay 누적 스코어(0~1 연속).
+> 두 이름은 의미·단위·생애주기가 다르므로 통일하지 않는다.
 
 > **구 태그(레거시) 매핑**
 > | 구 태그 | 신 태그 | 비고 |

@@ -94,6 +94,16 @@ date,regime
 **변경 시**: 이문정과 반드시 사전 협의 필요 (env.py 관측공간 차원 변경 연동)  
 **일별 decay 값**: `data/processed/risk_vectors_daily.parquet` — `build_risk_parquet.py`로 생성
 
+> **명명 규약(의도된 이중 명명)** — `docs/design_baseline.md` §4-A
+> - **Full form** (`macro_rate_risk` / `equity_market_risk` / `geopolitical_fx_risk`)
+>   는 **이벤트 단위 severity**(0 / 0.33 / 0.66 / 1.0 이산값) 및 RL 관측 벡터 슬롯 이름에 사용한다.
+>   적용 위치: `RL_RISK_TAGS`, raw event parquet(`unified_events.parquet`, `manual_seed_events.parquet` 등), `PortfolioEnv.set_risk_vector` 입력 슬롯 순서.
+> - **Short form** (`risk_macro` / `risk_equity` / `risk_geo`)
+>   는 **일별 Exponential Decay 누적 스코어**(0~1 연속값)에만 사용한다.
+>   적용 위치: `data/processed/risk_vectors_daily.parquet` 컬럼, `train_walkforward.load_risk_data()` 출력, SHAP 피처 prefix(`risk_*`).
+> - 두 이름은 의미·단위·생애주기가 다르므로 통일하지 않는다.
+>   동일 이름을 쓰면 "이벤트 severity"와 "decay 누적 스코어"가 혼동된다.
+
 | 순서 | 태그 | obs 인덱스 | 커버하는 이벤트 유형 |
 |------|------|-----------|-------------------|
 | 0 | `macro_rate_risk` | obs[-3] | 금리 인상·인하, FOMC, CPI, 국채금리 변동, 한국은행 기준금리 |

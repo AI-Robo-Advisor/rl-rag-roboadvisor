@@ -152,6 +152,65 @@ def get_feature_names(asset_names: list[str], lookback: int = 30) -> list[str]:
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
 
+UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
+
+
+def _load_reasoning_context(date: str, window_days: int = 3) -> list[dict[str, str]]:
+    """target date ± window_days 기간의 LLM reasoning 컨텍스트를 조회합니다.
+
+    `unified_events.parquet`(GDELT·FRED·ECOS·manual_seed 통합본)에서
+    날짜 범위로 필터링하여 `reasoning`·`primary_tag`·`title` 등을 반환합니다.
+    parquet은 ChromaDB upsert에서 제외된 GDELT의 LLM reasoning까지 포함하므로
+    SHAP × RAG 스토리에 사용되는 전체 reasoning 풀과 일치합니다.
+
+    Args:
+        date: 기준 날짜 (YYYY-MM-DD).
+        window_days: 기준 날짜 좌우 윈도우 폭(일). 기본 3일.
+
+    Returns:
+        date 오름차순으로 정렬된 dict 리스트. 각 dict 키:
+            - date (str, "YYYY-MM-DD")
+            - source (str, 예: "gdelt"·"fred"·"ecos"·"manual_seed")
+            - primary_tag (str, "_risk" suffix 신버전 또는 "none")
+            - reasoning (str, LLM 또는 rule-based 라벨링 근거 텍스트)
+            - title (str, 원본 이벤트 제목)
+        parquet 미존재 또는 매칭 0건이면 빈 리스트.
+    """
+    if not UNIFIED_EVENTS_PATH.exists():
+        return []
+
+    try:
+        df = pd.read_parquet(UNIFIED_EVENTS_PATH)
+    except Exception:
+        return []
+
+    if "date" not in df.columns or "reasoning" not in df.columns:
+        return []
+
+    target = pd.Timestamp(date)
+    df["date"] = pd.to_datetime(df["date"])
+    lo = target - pd.Timedelta(days=window_days)
+    hi = target + pd.Timedelta(days=window_days)
+    sub = df[(df["date"] >= lo) & (df["date"] <= hi)].copy()
+
+    # reasoning 비어있거나 primary_tag가 none/공백인 행 제외
+    sub = sub[sub["reasoning"].astype(str).str.strip() != ""]
+    if "primary_tag" in sub.columns:
+        sub = sub[~sub["primary_tag"].astype(str).str.lower().isin(["none", "", "nan"])]
+    sub = sub.sort_values("date")
+
+    items: list[dict[str, str]] = []
+    for _, row in sub.iterrows():
+        items.append({
+            "date":        row["date"].strftime("%Y-%m-%d"),
+            "source":      str(row.get("source") or ""),
+            "primary_tag": str(row.get("primary_tag") or ""),
+            "reasoning":   str(row.get("reasoning") or ""),
+            "title":       str(row.get("title") or ""),
+        })
+    return items
+
+
 def _resolve_target_step(
     features_df: pd.DataFrame,
     date: str | None,
@@ -334,6 +393,7 @@ def compute_shap_explanation(
         "feature_contributions": feature_contributions,
         "feature_names": [fc["feature"] for fc in feature_contributions],
         "shap_values": [fc["contribution"] for fc in feature_contributions],
+        "reasoning_context": _load_reasoning_context(target_date),
         "message": f"PPO SHAP 분석 완료 (기준일: {target_date}, top_k={top_k}).",
     }
 
@@ -500,6 +560,16 @@ def generate_force_plot(
     )
     shap.save_html(str(html_path), force)
     print(f"Force Plot 저장 완료: {html_path}")
+
+    # 사이드카 reasoning context (.reasoning.json) — ChromaDB 매칭 0건이면 빈 리스트
+    import json as _json
+    reasoning = _load_reasoning_context(target_date)
+    reasoning_path = html_path.with_suffix(".reasoning.json")
+    reasoning_path.write_text(
+        _json.dumps(reasoning, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"Reasoning Context 저장 완료: {reasoning_path} ({len(reasoning)}건)")
 
 
 if __name__ == "__main__":

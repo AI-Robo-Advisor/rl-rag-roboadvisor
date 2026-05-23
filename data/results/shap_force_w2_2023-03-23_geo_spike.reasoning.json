@@ -1,0 +1,65 @@
+[
+  {
+    "date": "2023-03-20",
+    "source": "ecos",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "국고채 3년 -15.1bp",
+    "title": "국고채 3년 하락 15.1bp"
+  },
+  {
+    "date": "2023-03-21",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change +12bp",
+    "title": "US 10Y Treasury Yield +12bp"
+  },
+  {
+    "date": "2023-03-22",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -11bp",
+    "title": "US 10Y Treasury Yield -11bp"
+  },
+  {
+    "date": "2023-03-22",
+    "source": "gdelt",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "제재 및 경제 불안정성 언급, 지정학적 리스크",
+    "title": "venezuelatoday.net | UNGP_FORESTS_RIVERS_OCEANS"
+  },
+  {
+    "date": "2023-03-23",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "10Y Treasury yield change -10bp",
+    "title": "US 10Y Treasury Yield -10bp"
+  },
+  {
+    "date": "2023-03-23",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change -2.19%",
+    "title": "USD/KRW -2.19%"
+  },
+  {
+    "date": "2023-03-23",
+    "source": "fred",
+    "primary_tag": "macro_rate_risk",
+    "reasoning": "Fed rate change +0.25%p",
+    "title": "Fed Funds Target Rate +0.25%p"
+  },
+  {
+    "date": "2023-03-24",
+    "source": "ecos",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "원/달러 -1.52% 급변",
+    "title": "원/달러 환율 급락 (-1.52%)"
+  },
+  {
+    "date": "2023-03-24",
+    "source": "fred",
+    "primary_tag": "geopolitical_fx_risk",
+    "reasoning": "USD/KRW daily change +1.07%",
+    "title": "USD/KRW +1.07%"
+  }
+]
