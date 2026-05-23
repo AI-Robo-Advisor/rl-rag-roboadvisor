@@ -17,7 +17,7 @@ RL 학습·백테스트용 일별 risk 벡터 파일을 생성합니다.
 Decay 기간:
   macro_rate_risk:      30일 (금리·매크로 이벤트)
   equity_market_risk:   10일 (시장 변동성)
-  geopolitical_fx_risk: 60일 (전쟁·제재)
+  geopolitical_fx_risk: 20일 (전쟁·제재)
 
 실행:
   python scripts/build_risk_parquet.py

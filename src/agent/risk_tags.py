@@ -24,7 +24,7 @@ RL_RISK_TAGS: List[str] = ["macro_rate_risk", "equity_market_risk", "geopolitica
 DECAY_PERIODS: Dict[str, int] = {
     "macro_rate_risk":      30,   # 금리·매크로 이벤트: 영향 비교적 장기 지속
     "equity_market_risk":   10,   # 시장 변동성: 비교적 빠르게 정상화
-    "geopolitical_fx_risk": 60,   # 전쟁·제재: 매우 장기 지속
+    "geopolitical_fx_risk": 20,   # 전쟁·제재: build_risk_parquet.py와 동기화
 }
 
 # ─────────────────────────────────────────────
