@@ -6,7 +6,10 @@
   2순위: 개별 raw parquet (FRED / ECOS / manual_seed) — unified 없을 때 폴백
 
 제외:
-  GDELT (source='gdelt') — 실제 뉴스 본문이 없는 이벤트 코드 형식
+  GDELT (source='gdelt') — title/summary가 GKG 테마코드 나열(기계 형식)이라
+  자연어 임베딩 품질이 극히 낮아 RAG 검색에 부적합. LLM 라벨링은 리스크
+  점수(risk_vectors_daily.parquet)용으로만 사용하고 ChromaDB에는 넣지 않음.
+  향후 GDELT를 포함하려면 title/summary를 자연어로 재생성하는 전처리 필요.
 
 출력:
   chroma_db/finance_news 컬렉션 upsert
@@ -41,7 +44,8 @@ RAW_FALLBACK_PATHS: List[Path] = [
     Path("data/raw/manual_seed/manual_seed_events.parquet"),
 ]
 
-# GDELT 이벤트는 실제 뉴스 본문 없음 → ChromaDB 대상에서 제외
+# GDELT: title/summary가 GKG 기계코드 형식 → 임베딩 품질 낮아 영구 제외.
+# LLM 라벨링 완료 후 --clear 재실행해도 포함되지 않음 (의도적 설계).
 EXCLUDED_SOURCES = {"gdelt"}
 
 BATCH_SIZE = 500
