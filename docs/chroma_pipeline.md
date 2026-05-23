@@ -20,7 +20,7 @@ ChromaDB `finance_news` 컬렉션에는 **두 경로**로 데이터가 유입된
   finance_news 컬렉션
 
 [경로 B] 실시간 뉴스 (주기적 실행)
-  Google News RSS (3개 피드)
+  Google News RSS (5개 카테고리: 미국주식·글로벌시장·채권금리·금대체자산·한국시장)
   + ECOS StatisticTableList (보조)
         │
         ▼
@@ -122,7 +122,7 @@ GDELT는 ChromaDB에서 **영구 제외**. title/summary가 GKG 기계코드 나
 | `summary` | str | 본문 요약 (≤300자) | ✅ | ✅ |
 | `url` | str | 원문 URL | ✅ | ✅ |
 | `date` | str | 기준일 `YYYY-MM-DD` | ✅ | ✅ |
-| `category` | str | 리스크 카테고리 | `macro_rate_risk` 등 | `급등락` 등 |
+| `category` | str | 리스크 카테고리 | `macro_rate_risk` 등 | `미국주식` 등 |
 | `source` | str | 데이터 출처 | `fred` / `ecos` / `manual_seed` | `google_news` |
 | `risk_label` | str | RL 3축 태그 (쉼표 구분) | ✅ | ✅ |
 
