@@ -47,7 +47,7 @@ DATE_END   = "2025-12-31"
 DECAY_PERIODS: Dict[str, int] = {
     "macro_rate_risk":      30,
     "equity_market_risk":   10,
-    "geopolitical_fx_risk": 60,
+    "geopolitical_fx_risk": 20,
 }
 
 # 입력 컬럼명 (팀원 parquet의 라벨 컬럼)
