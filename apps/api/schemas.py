@@ -64,12 +64,25 @@ class ExplainRequest(BaseModel):
     top_k: int = Field(default=8, ge=1, le=20)
 
 
+class ReasoningEvent(BaseModel):
+    """One event-level reasoning trace linked to SHAP output."""
+
+    event_date: str
+    days_elapsed: int
+    tag: str
+    severity: float
+    decayed_score: float
+    reasoning: str
+    source: str
+
+
 class FeatureContribution(BaseModel):
     """One feature contribution for a SHAP-like explanation."""
 
     feature: str
     value: float
     contribution: float
+    reasoning_context: list[ReasoningEvent] = Field(default_factory=list)
 
 
 class ExplainResponse(BaseModel):
@@ -85,6 +98,7 @@ class ExplainResponse(BaseModel):
     feature_contributions: list[FeatureContribution]
     feature_names: list[str]
     shap_values: list[float]
+    reasoning_context: list[ReasoningEvent] = Field(default_factory=list)
     message: str
 
 

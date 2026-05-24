@@ -224,12 +224,43 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
   "base_value": 0.05,
   "prediction": 0.063,
   "feature_contributions": [
-    {"feature": "SPY_return", "value": 0.018, "contribution": 0.031},
-    {"feature": "QQQ_RSI",   "value": 61.2,  "contribution": 0.019},
+    {
+      "feature": "risk_equity_market_risk",
+      "value": 0.731,
+      "contribution": 0.041,
+      "reasoning_context": [
+        {
+          "event_date": "2024-06-13",
+          "days_elapsed": 1,
+          "tag": "equity_market_risk",
+          "severity": 0.66,
+          "decayed_score": 0.5982,
+          "reasoning": "VIX 급등 및 경기 둔화 우려 이벤트 감지",
+          "source": "gdelt"
+        }
+      ]
+    },
+    {
+      "feature": "QQQ_RSI",
+      "value": 61.2,
+      "contribution": 0.019,
+      "reasoning_context": []
+    },
     "..."
   ],
   "feature_names": ["SPY_return", "QQQ_RSI", "..."],
   "shap_values":   [0.031, 0.019, "..."],
+  "reasoning_context": [
+    {
+      "event_date": "2024-06-13",
+      "days_elapsed": 1,
+      "tag": "equity_market_risk",
+      "severity": 0.66,
+      "decayed_score": 0.5982,
+      "reasoning": "VIX 급등 및 경기 둔화 우려 이벤트 감지",
+      "source": "gdelt"
+    }
+  ],
   "message": "SHAP 모듈 연결 전 feature contribution fallback입니다."
 }
 ```
@@ -244,7 +275,29 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 | `feature_contributions` | `list[FeatureContribution]` | 피처별 기여도 (top_k 개, \|SHAP\| 내림차순) |
 | `feature_names` | `list[str]` | 피처명 배열 (feature_contributions와 순서 동일) |
 | `shap_values` | `list[float]` | SHAP 값 배열 (feature_contributions와 순서 동일) |
+| `reasoning_context` | `list[ReasoningEvent]` | target_date ±3일 범위 이벤트 reasoning trace (top-level) |
 | `message` | `str` | 상태 설명 메시지 |
+
+`FeatureContribution`는 아래 필드를 가진다:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `feature` | `str` | 피처 이름 |
+| `value` | `float` | target_date 시점 피처 값 |
+| `contribution` | `float` | SHAP 기여값 |
+| `reasoning_context` | `list[ReasoningEvent]` | risk_* 피처에만 tag 필터링된 reasoning, 일반 피처는 빈 리스트 |
+
+`ReasoningEvent`는 아래 필드를 가진다:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `event_date` | `str` | 이벤트 날짜 (`YYYY-MM-DD`) |
+| `days_elapsed` | `int` | `target_date - event_date` 일수 |
+| `tag` | `str` | `macro_rate_risk` \| `equity_market_risk` \| `geopolitical_fx_risk` |
+| `severity` | `float` | 이벤트 원시 강도 |
+| `decayed_score` | `float` | `apply_decay(severity, days_elapsed, tag)` 값 |
+| `reasoning` | `str` | 라벨링 근거 문장 |
+| `source` | `str` | 이벤트 소스 (`gdelt`, `fred`, `ecos`, `manual_seed`) |
 
 #### Sprint 3 통합 목표
 

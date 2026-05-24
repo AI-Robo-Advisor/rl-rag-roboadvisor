@@ -30,6 +30,7 @@ from apps.api.schemas import (
     OptimizeResponse,
     ResearchResponse,
     ReturnSeries,
+    ReasoningEvent,
     RiskProfile,
     SafeguardState,
     StrategyEffectStats,
@@ -41,6 +42,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
 SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
 PPO_TIMEOUT_SECONDS = 4.75
@@ -55,6 +57,17 @@ _STREAM_EVENT_ALLOWLIST = {
     "on_chat_model_stream",
     "on_tool_start",
     "on_tool_end",
+}
+REASONING_WINDOW_DAYS = 3
+_TAG_TO_SEVERITY_COL: dict[str, str] = {
+    "macro_rate_risk": "macro_rate_risk",
+    "equity_market_risk": "equity_market_risk",
+    "geopolitical_fx_risk": "geopolitical_fx_risk",
+}
+_RISK_FEATURE_TO_TAG: dict[str, str] = {
+    "risk_macro_rate_risk": "macro_rate_risk",
+    "risk_equity_market_risk": "equity_market_risk",
+    "risk_geopolitical_fx_risk": "geopolitical_fx_risk",
 }
 WINDOW_PERIODS: dict[BacktestWindow, tuple[str, str]] = {
     "w1": ("2022-01-01", "2022-12-31"),
@@ -92,6 +105,12 @@ def _load_returns() -> pd.DataFrame:
 def _load_features() -> pd.DataFrame:
     """Load processed features once per API process."""
     return pd.read_parquet(FEATURES_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_unified_events() -> pd.DataFrame:
+    """Load unified reasoning events once per API process."""
+    return pd.read_parquet(UNIFIED_EVENTS_PATH)
 
 
 def build_fallback_portfolio(
@@ -199,6 +218,9 @@ def build_fallback_explanation(
     selected = features[:top_k]
     prediction = 0.05 + sum(item.contribution for item in selected)
     target_date = date or _latest_feature_date()
+    reasoning_context = (
+        _build_reasoning_events(target_date) if target_date else []
+    )
     return ExplainResponse(
         status="fallback",
         elapsed_ms=elapsed_ms,
@@ -207,9 +229,10 @@ def build_fallback_explanation(
         target_date=target_date,
         base_value=0.05,
         prediction=round(prediction, 6),
-        feature_contributions=selected,
+        feature_contributions=_attach_feature_reasoning_context(selected, target_date),
         feature_names=[item.feature for item in selected],
         shap_values=[item.contribution for item in selected],
+        reasoning_context=reasoning_context,
         message="SHAP 모듈 연결 전 feature contribution fallback입니다.",
     )
 
@@ -219,19 +242,27 @@ def build_explanation_response(date: str | None, top_k: int) -> ExplainResponse:
     start = perf_counter()
     try:
         result = _shap_from_artifact(date, top_k) or _compute_ready_shap_with_timeout(date, top_k)
+        target_date = result.get("target_date")
+        feature_contributions = [
+            FeatureContribution(**item) for item in result.get("feature_contributions", [])
+        ]
+        top_reasoning_context = (
+            _build_reasoning_events(str(target_date)) if target_date else []
+        )
         return ExplainResponse(
             status="ready",
             elapsed_ms=_elapsed_ms(start),
             timed_out=False,
             date=result.get("date"),
-            target_date=result.get("target_date"),
+            target_date=target_date,
             base_value=result.get("base_value", 0.0),
             prediction=result.get("prediction", 0.0),
-            feature_contributions=[
-                FeatureContribution(**item) for item in result.get("feature_contributions", [])
-            ],
+            feature_contributions=_attach_feature_reasoning_context(
+                feature_contributions, str(target_date) if target_date else None
+            ),
             feature_names=list(result.get("feature_names", [])),
             shap_values=list(result.get("shap_values", [])),
+            reasoning_context=top_reasoning_context,
             message=result.get("message", "PPO SHAP 분석 완료."),
         )
     except Exception as exc:
@@ -883,6 +914,97 @@ def _static_feature_contributions() -> list[FeatureContribution]:
         FeatureContribution(feature="EEM_MACD_signal", value=-0.003, contribution=-0.005),
         FeatureContribution(feature="114260_return_30d", value=0.006, contribution=0.004),
     ]
+
+
+def _attach_feature_reasoning_context(
+    contributions: list[FeatureContribution],
+    target_date: str | None,
+) -> list[FeatureContribution]:
+    """Attach reasoning events per feature for risk-vector SHAP features."""
+    if not target_date:
+        return contributions
+
+    enriched: list[FeatureContribution] = []
+    for contribution in contributions:
+        mapped_tag = _RISK_FEATURE_TO_TAG.get(contribution.feature)
+        if not mapped_tag:
+            enriched.append(contribution.model_copy(update={"reasoning_context": []}))
+            continue
+        enriched.append(
+            contribution.model_copy(
+                update={
+                    "reasoning_context": _build_reasoning_events(
+                        target_date=target_date,
+                        tag_filter=mapped_tag,
+                    )
+                }
+            )
+        )
+    return enriched
+
+
+def _build_reasoning_events(
+    target_date: str,
+    *,
+    tag_filter: str | None = None,
+    window_days: int = REASONING_WINDOW_DAYS,
+) -> list[ReasoningEvent]:
+    """Build ReasoningEvent records from unified events near target_date."""
+    try:
+        events = _load_unified_events()
+    except (OSError, ValueError, ImportError):
+        return []
+
+    if events.empty:
+        return []
+    required_cols = {"date", "primary_tag", "reasoning", "source"}
+    if not required_cols.issubset(events.columns):
+        return []
+
+    target_ts = pd.Timestamp(target_date)
+    df = events.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+    lower = target_ts - pd.Timedelta(days=window_days)
+    upper = target_ts + pd.Timedelta(days=window_days)
+    df = df[(df["date"] >= lower) & (df["date"] <= upper)]
+    if df.empty:
+        return []
+
+    results: list[ReasoningEvent] = []
+    for _, row in df.sort_values("date").iterrows():
+        tag = str(row.get("primary_tag") or "")
+        if tag_filter and tag != tag_filter:
+            continue
+        severity_col = _TAG_TO_SEVERITY_COL.get(tag)
+        if not severity_col:
+            continue
+        try:
+            severity = float(row.get(severity_col, 0.0))
+        except (TypeError, ValueError):
+            severity = 0.0
+        days_elapsed = int((target_ts - row["date"]).days)
+        if days_elapsed < 0:
+            decayed_score = round(severity, 4)
+        else:
+            from src.agent.risk_tags import apply_decay
+
+            decayed_score = float(apply_decay(severity, days_elapsed, tag))
+        reasoning = str(row.get("reasoning") or "").strip()
+        if not reasoning:
+            continue
+        results.append(
+            ReasoningEvent(
+                event_date=row["date"].strftime("%Y-%m-%d"),
+                days_elapsed=days_elapsed,
+                tag=tag,
+                severity=round(severity, 4),
+                decayed_score=round(decayed_score, 4),
+                reasoning=reasoning,
+                source=str(row.get("source") or ""),
+            )
+        )
+    return results
 
 
 def _latest_feature_date() -> str | None:

@@ -153,6 +153,10 @@ def test_explain_returns_feature_contributions() -> None:
     assert payload["date"] == "2024-12-31"
     assert len(payload["feature_contributions"]) == 5
     assert {"feature", "value", "contribution"} <= set(payload["feature_contributions"][0])
+    assert "reasoning_context" in payload
+    assert isinstance(payload["reasoning_context"], list)
+    assert "reasoning_context" in payload["feature_contributions"][0]
+    assert isinstance(payload["feature_contributions"][0]["reasoning_context"], list)
     assert payload["target_date"] <= "2024-12-31"
     assert len(payload["feature_names"]) == 5
     assert len(payload["shap_values"]) == 5
@@ -237,6 +241,99 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     assert payload["feature_names"] == ["SPY_RSI"]
     assert "artifact" in payload["message"]
     api_services._load_shap_artifact.cache_clear()
+
+
+def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) -> None:
+    """POST /explain should attach per-feature reasoning only to risk_* features."""
+
+    def fake_compute_ready_shap(date: str | None, top_k: int) -> dict:
+        return {
+            "status": "ready",
+            "date": date,
+            "target_date": "2024-12-30",
+            "base_value": 0.1,
+            "prediction": 0.13,
+            "feature_contributions": [
+                {
+                    "feature": "risk_equity_market_risk",
+                    "value": 0.9,
+                    "contribution": 0.03,
+                },
+                {
+                    "feature": "SPY_RSI",
+                    "value": 0.5,
+                    "contribution": 0.01,
+                },
+            ],
+            "feature_names": ["risk_equity_market_risk", "SPY_RSI"],
+            "shap_values": [0.03, 0.01],
+            "message": f"PPO SHAP 분석 완료 top_k={top_k}",
+        }
+
+    def fake_build_reasoning_events(
+        target_date: str,
+        *,
+        tag_filter: str | None = None,
+        window_days: int = 3,
+    ) -> list:
+        base = {
+            "event_date": "2024-12-29",
+            "days_elapsed": 1,
+            "tag": tag_filter or "equity_market_risk",
+            "severity": 0.66,
+            "decayed_score": 0.5982,
+            "reasoning": "테스트 reasoning",
+            "source": "gdelt",
+        }
+        if tag_filter is None:
+            return [base]
+        if tag_filter == "equity_market_risk":
+            return [base]
+        return []
+
+    monkeypatch.setattr(api_services, "_shap_from_artifact", lambda date, top_k: None)
+    monkeypatch.setattr(
+        api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
+    )
+    monkeypatch.setattr(api_services, "_build_reasoning_events", fake_build_reasoning_events)
+
+    response = client.post("/explain", json={"date": "2024-12-31", "top_k": 2})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["reasoning_context"]) == 1
+    assert len(payload["feature_contributions"][0]["reasoning_context"]) == 1
+    assert payload["feature_contributions"][1]["reasoning_context"] == []
+
+
+def test_build_reasoning_events_returns_reasoning_event_schema(monkeypatch) -> None:
+    """Reasoning event builder should output 7-key schema records."""
+    events = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "시장 급락 신호",
+                "equity_market_risk": 0.66,
+                "macro_rate_risk": 0.0,
+                "geopolitical_fx_risk": 0.33,
+            }
+        ]
+    )
+    monkeypatch.setattr(api_services, "_load_unified_events", lambda: events)
+
+    records = api_services._build_reasoning_events("2024-12-30")
+    assert len(records) == 1
+    row = records[0].model_dump()
+    assert {
+        "event_date",
+        "days_elapsed",
+        "tag",
+        "severity",
+        "decayed_score",
+        "reasoning",
+        "source",
+    } <= set(row)
 
 
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
