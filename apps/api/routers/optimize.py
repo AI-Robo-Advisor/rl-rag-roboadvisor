@@ -16,4 +16,5 @@ def optimize_portfolio(request: OptimizeRequest) -> OptimizeResponse:
         risk_profile=request.risk_profile,
         risk_aversion=request.risk_aversion,
         risk_tags=request.risk_tags,
+        risk_signals=request.risk_signals,
     )

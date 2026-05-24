@@ -37,6 +37,32 @@ def extract_risk_tags_from_research_event(event: dict[str, Any]) -> list[str]:
     return [str(tag) for tag in raw_tags if str(tag) in RL_RISK_TAGS]
 
 
+def extract_risk_signals_from_research_event(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return validated risk_signals from research stream events."""
+    event_type = event.get("type")
+    if event_type == "complete":
+        raw_signals = event.get("risk_signals", [])
+    elif event_type == "fallback":
+        data = event.get("data") or {}
+        raw_signals = data.get("risk_signals", []) if isinstance(data, dict) else []
+    else:
+        raw_signals = []
+
+    normalized: list[dict[str, Any]] = []
+    for item in raw_signals:
+        if not isinstance(item, dict):
+            continue
+        tag = str(item.get("tag") or "")
+        if tag not in RL_RISK_TAGS:
+            continue
+        try:
+            severity = float(item.get("severity", 0.0))
+        except (TypeError, ValueError):
+            continue
+        normalized.append({"tag": tag, "severity": max(0.0, min(1.0, severity))})
+    return normalized
+
+
 def research_result_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize a research stream final event into dashboard session data."""
     event_type = event.get("type")
@@ -48,6 +74,7 @@ def research_result_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
             "sources": [str(source) for source in event.get("sources", []) if source],
             "reasoning_trace": str(event.get("reasoning_trace", "")),
             "risk_tags": extract_risk_tags_from_research_event(event),
+            "risk_signals": extract_risk_signals_from_research_event(event),
         }
     if event_type == "fallback":
         data = event.get("data") or {}
@@ -60,6 +87,7 @@ def research_result_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
             "sources": [str(source) for source in data.get("sources", []) if source],
             "reasoning_trace": str(data.get("reasoning_trace", "")),
             "risk_tags": extract_risk_tags_from_research_event(event),
+            "risk_signals": extract_risk_signals_from_research_event(event),
         }
     return None
 
@@ -100,9 +128,14 @@ def risk_vector_from_tags(risk_tags: list[str] | None) -> list[float]:
 def build_optimize_payload(
     risk_aversion: float,
     risk_tags: list[str] | None = None,
+    risk_signals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the /optimize request body sent by the dashboard."""
-    return {"risk_aversion": risk_aversion, "risk_tags": list(risk_tags or [])}
+    return {
+        "risk_aversion": risk_aversion,
+        "risk_tags": list(risk_tags or []),
+        "risk_signals": list(risk_signals or []),
+    }
 
 
 def get_json(

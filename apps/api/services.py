@@ -29,6 +29,7 @@ from apps.api.schemas import (
     InteractionStats,
     OptimizeResponse,
     ResearchResponse,
+    RiskSignal,
     ReturnSeries,
     RiskProfile,
     SafeguardState,
@@ -134,13 +135,19 @@ def build_portfolio_response(
     risk_profile: RiskProfile = "balanced",
     risk_aversion: float | None = None,
     risk_tags: list[str] | None = None,
+    risk_signals: list[RiskSignal] | None = None,
 ) -> OptimizeResponse:
     """Return PPO portfolio weights when available, otherwise fallback weights."""
     start = perf_counter()
     selected_tickers = tickers or DEFAULT_TICKERS
-    selected_risk_tags = risk_tags if risk_tags is not None else _default_rl_risk_tags()
+    selected_risk_tags = risk_tags or []
+    selected_risk_signals = risk_signals or _risk_signals_from_tags(selected_risk_tags)
     try:
-        weights = _predict_ppo_weights_with_timeout(selected_tickers, selected_risk_tags)
+        weights = _predict_ppo_weights_with_timeout(
+            selected_tickers,
+            selected_risk_tags,
+            selected_risk_signals,
+        )
     except Exception as exc:
         return build_fallback_portfolio(
             selected_tickers,
@@ -321,6 +328,7 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
             "sources": response.sources,
             "reasoning_trace": response.reasoning_trace,
             "risk_tags": response.risk_tags,
+            "risk_signals": [signal.model_dump() for signal in response.risk_signals],
         }
     )
 
@@ -333,7 +341,14 @@ def _state_from_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
     output = data.get("output")
     if not isinstance(output, dict):
         return None
-    useful_keys = {"response", "sources", "reasoning_trace", "risk_tags", "rl_risk_tags"}
+    useful_keys = {
+        "response",
+        "sources",
+        "reasoning_trace",
+        "risk_tags",
+        "rl_risk_tags",
+        "risk_signals",
+    }
     if not any(key in output for key in useful_keys):
         return None
     return {str(key): value for key, value in output.items() if key in useful_keys}
@@ -413,6 +428,9 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
     reasoning_trace = state.get("reasoning_trace") or "\n".join(str(item) for item in messages)
     raw_risk_tags = state.get("rl_risk_tags") or state.get("risk_tags") or []
     risk_tags = _normalize_rl_risk_tags(raw_risk_tags) or _infer_risk_tags(question)
+    risk_signals = _normalize_risk_signals(state.get("risk_signals")) or _risk_signals_from_tags(
+        risk_tags
+    )
     sources = [str(source) for source in state.get("sources", []) if source]
 
     return ResearchResponse(
@@ -422,6 +440,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         sources=sources or ["https://github.com/AI-Robo-Advisor/rl-rag-roboadvisor"],
         reasoning_trace=reasoning_trace,
         risk_tags=risk_tags,
+        risk_signals=risk_signals,
     )
 
 
@@ -451,6 +470,7 @@ def build_fallback_research(
             ]
         ),
         risk_tags=risk_tags,
+        risk_signals=_risk_signals_from_tags(risk_tags),
     )
 
 
@@ -513,6 +533,7 @@ def build_module_statuses() -> dict[str, str]:
 def _predict_ppo_weights(
     tickers: list[str],
     risk_tags: list[str] | None = None,
+    risk_signals: list[RiskSignal] | None = None,
 ) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
     returns = _load_returns()
@@ -521,14 +542,7 @@ def _predict_ppo_weights(
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
 
-    from src.agent.risk_tags import RL_RISK_TAGS
     from src.rl.env import PortfolioEnv
-
-    risk_tags_set = set(risk_tags or [])
-    risk_vector = np.array(
-        [1.0 if tag in risk_tags_set else 0.0 for tag in RL_RISK_TAGS],
-        dtype=np.float32,
-    )
 
     model = _load_ppo_model()
     env = PortfolioEnv(
@@ -536,8 +550,12 @@ def _predict_ppo_weights(
         features_df=features,
         lookback=30,
         reward_type="sharpe",
-        risk_vector=risk_vector,
     )
+    selected_signals = _normalize_risk_signals(risk_signals) or _risk_signals_from_tags(
+        risk_tags or []
+    )
+    if selected_signals:
+        env.set_risk_vector(_signals_to_vector(selected_signals))
     obs, _ = env.reset()
     env.current_step = len(env.features_df) - 1
     obs = env._get_observation()
@@ -550,9 +568,10 @@ def _predict_ppo_weights(
 def _predict_ppo_weights_with_timeout(
     tickers: list[str],
     risk_tags: list[str] | None = None,
+    risk_signals: list[RiskSignal] | None = None,
 ) -> dict[str, float]:
     """Run PPO inference with a request-time budget."""
-    future = _PPO_EXECUTOR.submit(_predict_ppo_weights, tickers, risk_tags or [])
+    future = _PPO_EXECUTOR.submit(_predict_ppo_weights, tickers, risk_tags or [], risk_signals)
     try:
         return future.result(timeout=PPO_TIMEOUT_SECONDS)
     except TimeoutError:
@@ -1135,6 +1154,44 @@ def _normalize_rl_risk_tags(tags: Any) -> list[str]:
     except Exception:
         return []
     return [str(tag) for tag in tags or [] if str(tag) in allowed]
+
+
+def _risk_signals_from_tags(tags: list[str]) -> list[RiskSignal]:
+    """Convert risk tags into default-severity signals for backward compatibility."""
+    return [RiskSignal(tag=tag, severity=1.0) for tag in _normalize_rl_risk_tags(tags)]
+
+
+def _normalize_risk_signals(raw_signals: Any) -> list[RiskSignal]:
+    """Normalize raw risk signal payload into validated RiskSignal entries."""
+    if not isinstance(raw_signals, list):
+        return []
+    normalized: list[RiskSignal] = []
+    for item in raw_signals:
+        if isinstance(item, RiskSignal):
+            normalized.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        tag = item.get("tag")
+        severity = item.get("severity")
+        if tag is None or severity is None:
+            continue
+        try:
+            normalized.append(RiskSignal(tag=str(tag), severity=float(severity)))
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def _signals_to_vector(signals: list[RiskSignal]) -> np.ndarray:
+    """Build RL observation risk vector from RiskSignal entries."""
+    from src.agent.risk_tags import RL_RISK_TAGS, apply_decay
+
+    severity_by_tag = {signal.tag: signal.severity for signal in signals}
+    return np.array(
+        [apply_decay(float(severity_by_tag.get(tag, 0.0)), 0, tag) for tag in RL_RISK_TAGS],
+        dtype=np.float32,
+    )
 
 
 def _to_ndjson(payload: dict[str, Any]) -> str:

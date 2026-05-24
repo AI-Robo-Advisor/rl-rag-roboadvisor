@@ -8,6 +8,7 @@ import requests
 
 from apps.dashboard.api_client import (
     build_optimize_payload,
+    extract_risk_signals_from_research_event,
     extract_risk_tags_from_research_event,
     format_research_log_event,
     get_json,
@@ -143,6 +144,7 @@ def test_research_result_from_complete_event() -> None:
         "sources": ["https://example.com"],
         "reasoning_trace": "trace",
         "risk_tags": ["equity_market_risk", "macro_rate_risk"],
+        "risk_signals": [],
     }
 
 
@@ -159,4 +161,24 @@ def test_build_optimize_payload_includes_session_risk_tags() -> None:
     """Dashboard /optimize payload should carry session risk tags."""
     payload = build_optimize_payload(1.5, ["equity_market_risk", "geopolitical_fx_risk"])
 
-    assert payload == {"risk_aversion": 1.5, "risk_tags": ["equity_market_risk", "geopolitical_fx_risk"]}
+    assert payload == {
+        "risk_aversion": 1.5,
+        "risk_tags": ["equity_market_risk", "geopolitical_fx_risk"],
+        "risk_signals": [],
+    }
+
+
+def test_extract_risk_signals_from_research_event_filters_schema() -> None:
+    """Dashboard should keep only valid risk signal rows."""
+    event = {
+        "type": "complete",
+        "risk_signals": [
+            {"tag": "equity_market_risk", "severity": 0.66},
+            {"tag": "unknown", "severity": 1.0},
+            {"tag": "macro_rate_risk", "severity": "bad"},
+        ],
+    }
+
+    assert extract_risk_signals_from_research_event(event) == [
+        {"tag": "equity_market_risk", "severity": 0.66}
+    ]

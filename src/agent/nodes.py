@@ -18,7 +18,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from apps.api.config import settings
-from src.agent.risk_tags import extract_risk_tags, extract_rl_risk_tags
+from src.agent.risk_tags import RL_RISK_TAGS, extract_risk_tags, extract_rl_risk_tags, score_risk_vector
 from src.agent.vectorstore import collection_document_count, query_documents
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ class AgentState(TypedDict):
     sources: List[str]
     reasoning_trace: str
     search_query: NotRequired[str]
+    risk_signals: NotRequired[List[Dict[str, float | str]]]
 
 
 def _think_log(node: str, detail: str) -> str:
@@ -352,6 +353,12 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     # RL 관측공간 연동용 3종 태그
     all_text = " ".join(d.get("content", "") for d in documents)
     rl_risk_tags: List[str] = extract_rl_risk_tags(all_text) if all_text else []
+    macro, equity, geo = score_risk_vector(all_text)
+    risk_signals = [
+        {"tag": tag, "severity": float(severity)}
+        for tag, severity in zip(RL_RISK_TAGS, [macro, equity, geo])
+        if float(severity) > 0
+    ]
 
     msg = _think_log("analyst", "최종 리포트 생성 착수")
     risk_summary = ", ".join(general_risk_tags) if general_risk_tags else "없음"
@@ -398,5 +405,6 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
         "sources": sources,
         "reasoning_trace": reasoning_trace,
         "rl_risk_tags": rl_risk_tags,
+        "risk_signals": risk_signals,
         "messages": [msg, tail],
     }
