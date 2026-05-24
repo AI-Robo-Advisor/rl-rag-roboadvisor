@@ -229,12 +229,23 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
   "base_value": 0.05,
   "prediction": 0.063,
   "feature_contributions": [
-    {"feature": "SPY_return", "value": 0.018, "contribution": 0.031},
-    {"feature": "QQQ_RSI",   "value": 61.2,  "contribution": 0.019},
+    {"feature": "SPY_return", "value": 0.018, "contribution": 0.031, "reasoning_context": []},
+    {"feature": "QQQ_RSI",   "value": 61.2,  "contribution": 0.019, "reasoning_context": []},
     "..."
   ],
   "feature_names": ["SPY_return", "QQQ_RSI", "..."],
   "shap_values":   [0.031, 0.019, "..."],
+  "reasoning_context": [
+    {
+      "event_date": "2024-06-13",
+      "days_elapsed": 1,
+      "tag": "equity_market_risk",
+      "severity": 0.66,
+      "decayed_score": 0.5972,
+      "reasoning": "VIX spike to 28.1",
+      "source": "fred"
+    }
+  ],
   "message": "SHAP 모듈 연결 전 feature contribution fallback입니다."
 }
 ```
@@ -249,7 +260,29 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 | `feature_contributions` | `list[FeatureContribution]` | 피처별 기여도 (top_k 개, \|SHAP\| 내림차순) |
 | `feature_names` | `list[str]` | 피처명 배열 (feature_contributions와 순서 동일) |
 | `shap_values` | `list[float]` | SHAP 값 배열 (feature_contributions와 순서 동일) |
+| `reasoning_context` | `list[ReasoningEvent]` | SHAP 해석과 연결된 이벤트 근거 컨텍스트 |
 | `message` | `str` | 상태 설명 메시지 |
+
+`FeatureContribution` 하위 스키마는 다음 필드를 포함한다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `feature` | `str` | 피처 이름 |
+| `value` | `float` | 대상 날짜 관측값 |
+| `contribution` | `float` | SHAP 기여도 |
+| `reasoning_context` | `list[ReasoningEvent]` | `risk_*` 피처에 매핑된 이벤트 근거 (비리스크 피처는 `[]`) |
+
+`ReasoningEvent` 스키마는 다음과 같다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `event_date` | `str` (`YYYY-MM-DD`) | 근거 이벤트 날짜 |
+| `days_elapsed` | `int` | `target_date - event_date` (일) |
+| `tag` | `str` | 리스크 태그 (`macro_rate_risk` \| `equity_market_risk` \| `geopolitical_fx_risk`) |
+| `severity` | `float` | 원본 이벤트 강도 (0~1) |
+| `decayed_score` | `float` | `apply_decay(severity, days_elapsed, tag)` 결과 |
+| `reasoning` | `str` | 이벤트 근거 텍스트 |
+| `source` | `str` | 이벤트 출처 (`gdelt`/`fred`/`ecos`/`manual_seed` 등) |
 
 #### Sprint 3 통합 목표
 

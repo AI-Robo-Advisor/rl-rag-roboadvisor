@@ -28,6 +28,7 @@ from apps.api.schemas import (
     FeatureContribution,
     InteractionStats,
     OptimizeResponse,
+    ReasoningEvent,
     ResearchResponse,
     RiskSignal,
     ReturnSeries,
@@ -42,11 +43,13 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
 SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
 PPO_TIMEOUT_SECONDS = 4.75
 SHAP_TIMEOUT_SECONDS = 4.75
 RESEARCH_TIMEOUT_SECONDS = 4.5
+REASONING_WINDOW_DAYS = 3
 _PPO_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 _SHAP_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 _RESEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=1)
@@ -76,6 +79,20 @@ DEFAULT_TICKERS: list[str] = [
     "069500",
     "114260",
 ]
+
+_TAG_TO_SEVERITY_COL: dict[str, str] = {
+    "macro_rate_risk": "macro_rate_risk",
+    "equity_market_risk": "equity_market_risk",
+    "geopolitical_fx_risk": "geopolitical_fx_risk",
+}
+_RISK_FEATURE_TO_TAG: dict[str, str] = {
+    "risk_macro_rate_risk": "macro_rate_risk",
+    "risk_macro": "macro_rate_risk",
+    "risk_equity_market_risk": "equity_market_risk",
+    "risk_equity": "equity_market_risk",
+    "risk_geopolitical_fx_risk": "geopolitical_fx_risk",
+    "risk_geo": "geopolitical_fx_risk",
+}
 
 
 def _elapsed_ms(start: float) -> float:
@@ -206,6 +223,7 @@ def build_fallback_explanation(
     selected = features[:top_k]
     prediction = 0.05 + sum(item.contribution for item in selected)
     target_date = date or _latest_feature_date()
+    reasoning_context = _build_reasoning_events(target_date) if target_date else []
     return ExplainResponse(
         status="fallback",
         elapsed_ms=elapsed_ms,
@@ -214,9 +232,10 @@ def build_fallback_explanation(
         target_date=target_date,
         base_value=0.05,
         prediction=round(prediction, 6),
-        feature_contributions=selected,
+        feature_contributions=_attach_feature_reasoning_context(selected, target_date),
         feature_names=[item.feature for item in selected],
         shap_values=[item.contribution for item in selected],
+        reasoning_context=reasoning_context,
         message="SHAP 모듈 연결 전 feature contribution fallback입니다.",
     )
 
@@ -226,19 +245,31 @@ def build_explanation_response(date: str | None, top_k: int) -> ExplainResponse:
     start = perf_counter()
     try:
         result = _shap_from_artifact(date, top_k) or _compute_ready_shap_with_timeout(date, top_k)
+        target_date = result.get("target_date")
+        target_date_text = str(target_date) if target_date is not None else None
+        feature_contributions = [
+            FeatureContribution(**item) for item in result.get("feature_contributions", [])
+        ]
+        top_reasoning_context = _build_reasoning_events(
+            target_date_text,
+            raw_context=result.get("reasoning_context"),
+        )
         return ExplainResponse(
             status="ready",
             elapsed_ms=_elapsed_ms(start),
             timed_out=False,
             date=result.get("date"),
-            target_date=result.get("target_date"),
+            target_date=target_date,
             base_value=result.get("base_value", 0.0),
             prediction=result.get("prediction", 0.0),
-            feature_contributions=[
-                FeatureContribution(**item) for item in result.get("feature_contributions", [])
-            ],
+            feature_contributions=_attach_feature_reasoning_context(
+                feature_contributions,
+                target_date_text,
+                raw_context=result.get("reasoning_context"),
+            ),
             feature_names=list(result.get("feature_names", [])),
             shap_values=list(result.get("shap_values", [])),
+            reasoning_context=top_reasoning_context,
             message=result.get("message", "PPO SHAP 분석 완료."),
         )
     except Exception as exc:
@@ -1192,6 +1223,149 @@ def _signals_to_vector(signals: list[RiskSignal]) -> np.ndarray:
         [apply_decay(float(severity_by_tag.get(tag, 0.0)), 0, tag) for tag in RL_RISK_TAGS],
         dtype=np.float32,
     )
+
+
+@lru_cache(maxsize=1)
+def _load_unified_events() -> pd.DataFrame:
+    """Load unified event-level reasoning rows from parquet."""
+    if not UNIFIED_EVENTS_PATH.exists():
+        return pd.DataFrame()
+    try:
+        events = pd.read_parquet(UNIFIED_EVENTS_PATH)
+    except (OSError, ValueError, ImportError):
+        return pd.DataFrame()
+    if events.empty or "date" not in events.columns:
+        return pd.DataFrame()
+    loaded = events.copy()
+    loaded["date"] = pd.to_datetime(loaded["date"], errors="coerce")
+    return loaded.dropna(subset=["date"])
+
+
+def _normalize_reasoning_event(
+    raw_event: dict[str, Any],
+    target_date: pd.Timestamp,
+) -> ReasoningEvent | None:
+    """Convert SHAP/unified raw event payload into ReasoningEvent schema."""
+    from src.agent.risk_tags import apply_decay
+
+    event_date_raw = raw_event.get("event_date") or raw_event.get("date")
+    if event_date_raw is None:
+        return None
+    event_ts = pd.to_datetime(event_date_raw, errors="coerce")
+    if pd.isna(event_ts):
+        return None
+
+    tag_raw = raw_event.get("tag") or raw_event.get("primary_tag")
+    tag = str(tag_raw).strip() if tag_raw is not None else ""
+    if tag not in _TAG_TO_SEVERITY_COL:
+        return None
+
+    severity_raw = raw_event.get("severity")
+    if severity_raw is None:
+        severity_raw = raw_event.get(_TAG_TO_SEVERITY_COL[tag], 0.0)
+    try:
+        severity = float(severity_raw)
+    except (TypeError, ValueError):
+        severity = 0.0
+    severity = min(max(severity, 0.0), 1.0)
+
+    days_elapsed = max(int((target_date.normalize() - event_ts.normalize()).days), 0)
+    reasoning = str(raw_event.get("reasoning") or "").strip()
+    source = str(raw_event.get("source") or "")
+
+    return ReasoningEvent(
+        event_date=event_ts.strftime("%Y-%m-%d"),
+        days_elapsed=days_elapsed,
+        tag=tag,
+        severity=round(severity, 6),
+        decayed_score=float(apply_decay(severity, days_elapsed, tag)),
+        reasoning=reasoning,
+        source=source,
+    )
+
+
+def _build_reasoning_events(
+    target_date: str | None,
+    *,
+    tag_filter: str | None = None,
+    window_days: int = REASONING_WINDOW_DAYS,
+    raw_context: Any = None,
+) -> list[ReasoningEvent]:
+    """Build normalized reasoning events from SHAP output or unified events parquet."""
+    if not target_date:
+        return []
+    target_ts = pd.to_datetime(target_date, errors="coerce")
+    if pd.isna(target_ts):
+        return []
+
+    raw_events: list[dict[str, Any]] = []
+    if isinstance(raw_context, list):
+        raw_events = [item for item in raw_context if isinstance(item, dict)]
+    else:
+        events = _load_unified_events()
+        if events.empty:
+            return []
+        lower = target_ts - pd.Timedelta(days=window_days)
+        upper = target_ts + pd.Timedelta(days=window_days)
+        windowed = events[(events["date"] >= lower) & (events["date"] <= upper)].copy()
+        if windowed.empty:
+            return []
+        raw_events = [
+            {
+                "event_date": row["date"],
+                "source": row.get("source"),
+                "tag": row.get("primary_tag"),
+                "severity": row.get(row.get("primary_tag", ""), row.get("severity", 0.0)),
+                "reasoning": row.get("reasoning"),
+            }
+            for _, row in windowed.iterrows()
+        ]
+
+    normalized = [
+        event
+        for item in raw_events
+        for event in [_normalize_reasoning_event(item, target_ts)]
+        if event is not None
+    ]
+    if tag_filter:
+        normalized = [item for item in normalized if item.tag == tag_filter]
+    normalized.sort(key=lambda item: (item.event_date, item.tag))
+    return normalized
+
+
+def _risk_tag_from_feature(feature_name: str) -> str | None:
+    """Resolve RL risk tag from a SHAP feature name."""
+    lowered = feature_name.strip().lower()
+    for key, tag in _RISK_FEATURE_TO_TAG.items():
+        if key in lowered:
+            return tag
+    return None
+
+
+def _attach_feature_reasoning_context(
+    contributions: list[FeatureContribution],
+    target_date: str | None,
+    *,
+    raw_context: Any = None,
+) -> list[FeatureContribution]:
+    """Attach reasoning context to risk_* feature contributions only."""
+    attached: list[FeatureContribution] = []
+    for contribution in contributions:
+        tag = _risk_tag_from_feature(contribution.feature)
+        context = (
+            _build_reasoning_events(target_date, tag_filter=tag, raw_context=raw_context)
+            if tag and target_date
+            else []
+        )
+        attached.append(
+            FeatureContribution(
+                feature=contribution.feature,
+                value=contribution.value,
+                contribution=contribution.contribution,
+                reasoning_context=context,
+            )
+        )
+    return attached
 
 
 def _to_ndjson(payload: dict[str, Any]) -> str:

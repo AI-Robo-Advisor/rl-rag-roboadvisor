@@ -221,10 +221,15 @@ def test_explain_returns_feature_contributions() -> None:
     assert payload["status"] in {"ready", "fallback"}
     assert payload["date"] == "2024-12-31"
     assert len(payload["feature_contributions"]) == 5
-    assert {"feature", "value", "contribution"} <= set(payload["feature_contributions"][0])
+    assert {"feature", "value", "contribution", "reasoning_context"} <= set(
+        payload["feature_contributions"][0]
+    )
     assert payload["target_date"] <= "2024-12-31"
     assert len(payload["feature_names"]) == 5
     assert len(payload["shap_values"]) == 5
+    assert "reasoning_context" in payload
+    assert isinstance(payload["reasoning_context"], list)
+    assert isinstance(payload["feature_contributions"][0]["reasoning_context"], list)
     assert payload["feature_names"] == [
         item["feature"] for item in payload["feature_contributions"]
     ]
@@ -306,6 +311,86 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     assert payload["feature_names"] == ["SPY_RSI"]
     assert "artifact" in payload["message"]
     api_services._load_shap_artifact.cache_clear()
+
+
+def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) -> None:
+    """Risk SHAP features should receive per-feature reasoning_context only."""
+
+    def fake_compute_ready_shap(date: str | None, top_k: int) -> dict:
+        return {
+            "status": "ready",
+            "date": date,
+            "target_date": "2024-12-30",
+            "base_value": 0.1,
+            "prediction": 0.17,
+            "feature_contributions": [
+                {"feature": "risk_equity_market_risk", "value": 1.0, "contribution": 0.05},
+                {"feature": "SPY_RSI", "value": 60.0, "contribution": 0.02},
+            ],
+            "feature_names": ["risk_equity_market_risk", "SPY_RSI"],
+            "shap_values": [0.05, 0.02],
+            "reasoning_context": [
+                {
+                    "date": "2024-12-29",
+                    "source": "fred",
+                    "primary_tag": "equity_market_risk",
+                    "reasoning": "VIX spike to 32.0",
+                }
+            ],
+            "message": f"PPO SHAP 분석 완료 top_k={top_k}",
+        }
+
+    monkeypatch.setattr(
+        api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
+    )
+
+    response = client.post("/explain", json={"date": "2024-12-31", "top_k": 2})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["status"] == "ready"
+    assert len(payload["reasoning_context"]) == 1
+    assert payload["reasoning_context"][0]["tag"] == "equity_market_risk"
+    assert payload["reasoning_context"][0]["source"] == "fred"
+
+    risk_feature = payload["feature_contributions"][0]
+    normal_feature = payload["feature_contributions"][1]
+    assert risk_feature["feature"] == "risk_equity_market_risk"
+    assert len(risk_feature["reasoning_context"]) == 1
+    assert risk_feature["reasoning_context"][0]["tag"] == "equity_market_risk"
+    assert normal_feature["feature"] == "SPY_RSI"
+    assert normal_feature["reasoning_context"] == []
+
+
+def test_build_reasoning_events_returns_reasoning_event_schema() -> None:
+    """Reasoning mapper should normalize SHAP raw events into API schema."""
+    events = api_services._build_reasoning_events(
+        "2024-12-31",
+        raw_context=[
+            {
+                "date": "2024-12-30",
+                "source": "manual_seed",
+                "primary_tag": "macro_rate_risk",
+                "reasoning": "Fed rate change +0.25%p",
+            }
+        ],
+    )
+
+    assert len(events) == 1
+    event = events[0].model_dump()
+    assert {
+        "event_date",
+        "days_elapsed",
+        "tag",
+        "severity",
+        "decayed_score",
+        "reasoning",
+        "source",
+    } <= set(event)
+    assert event["event_date"] == "2024-12-30"
+    assert event["days_elapsed"] == 1
+    assert event["tag"] == "macro_rate_risk"
+    assert event["source"] == "manual_seed"
 
 
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
