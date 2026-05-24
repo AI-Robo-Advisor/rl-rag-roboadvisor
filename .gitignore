@@ -30,6 +30,8 @@ build/
 
 # Logs
 *.log
+# TensorBoard event 파일은 용량이 커서 추적 제외 (학습 곡선은 monitor.csv 기준)
+logs/tensorboard/
 
 # Streamlit cache
 .streamlit/
