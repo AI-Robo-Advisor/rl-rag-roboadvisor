@@ -950,6 +950,10 @@ def _build_reasoning_events(
     window_days: int = REASONING_WINDOW_DAYS,
 ) -> list[ReasoningEvent]:
     """Build ReasoningEvent records from unified events near target_date."""
+    target_ts = pd.to_datetime(target_date, errors="coerce")
+    if pd.isna(target_ts):
+        return []
+
     try:
         events = _load_unified_events()
     except (OSError, ValueError, ImportError):
@@ -961,7 +965,6 @@ def _build_reasoning_events(
     if not required_cols.issubset(events.columns):
         return []
 
-    target_ts = pd.Timestamp(target_date)
     df = events.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])

@@ -173,6 +173,17 @@ def test_explain_returns_feature_contributions() -> None:
     assert isinstance(payload["timed_out"], bool)
 
 
+def test_explain_invalid_date_falls_back_without_reasoning_context() -> None:
+    """Invalid explain dates should not fail while building reasoning context."""
+    response = client.post("/explain", json={"date": "not-a-date", "top_k": 2})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["date"] == "not-a-date"
+    assert payload["reasoning_context"] == []
+    assert all(item["reasoning_context"] == [] for item in payload["feature_contributions"])
+
+
 def test_explain_uses_ready_shap_module_when_available(monkeypatch) -> None:
     """POST /explain should use src.rl.shap when the module can compute a result."""
 
