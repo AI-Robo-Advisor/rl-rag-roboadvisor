@@ -19,6 +19,11 @@ _RESEARCH_NODE_LABELS = {
 }
 
 
+def _build_url(base_url: str, endpoint: str) -> str:
+    """Join a dashboard base URL and endpoint without double slashes."""
+    return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
 def calculate_period_return_metrics(
     portfolio_cumulative: list[float],
     benchmark_cumulative: list[float],
@@ -209,7 +214,7 @@ def get_json(
 ) -> dict[str, Any] | None:
     """Perform a GET request and return JSON, or fall back to None."""
     try:
-        resp = requests.get(f"{base_url}{endpoint}", params=params, timeout=timeout)
+        resp = requests.get(_build_url(base_url, endpoint), params=params, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -232,7 +237,7 @@ def post_json(
 ) -> dict[str, Any] | None:
     """Perform a POST request and return JSON, or fall back to None."""
     try:
-        resp = requests.post(f"{base_url}{endpoint}", json=payload, timeout=timeout)
+        resp = requests.post(_build_url(base_url, endpoint), json=payload, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -257,7 +262,7 @@ def stream_ndjson(
     """Stream newline-delimited JSON events as formatted strings."""
     try:
         with requests.post(
-            f"{base_url}{endpoint}",
+            _build_url(base_url, endpoint),
             json=payload,
             stream=True,
             timeout=timeout,

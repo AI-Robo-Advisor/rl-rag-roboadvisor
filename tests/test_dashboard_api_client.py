@@ -64,6 +64,60 @@ def test_get_json_returns_payload_on_success(monkeypatch) -> None:
     assert result == {"status": "ok"}
 
 
+def test_api_helpers_strip_trailing_slash_from_base_url(monkeypatch) -> None:
+    """HTTP helpers should normalize trailing slashes in the base URL."""
+    captured: list[str] = []
+
+    def fake_get(url: str, **kwargs: Any) -> _DummyResponse:
+        captured.append(url)
+        return _DummyResponse({"status": "ok"})
+
+    class _DummyStream:
+        def __enter__(self) -> "_DummyStream":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_lines(self) -> list[bytes]:
+            return [b'{"type":"complete"}']
+
+    def fake_post(url: str, **kwargs: Any) -> _DummyResponse | _DummyStream:
+        captured.append(url)
+        if kwargs.get("stream"):
+            return _DummyStream()
+        return _DummyResponse({"status": "ok"})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    assert get_json("http://localhost:8000/", "/health", timeout=3) == {"status": "ok"}
+    assert post_json(
+        "http://localhost:8000/",
+        "/optimize",
+        {"risk_aversion": 1.5},
+        timeout=3,
+    ) == {"status": "ok"}
+
+    list(
+        stream_ndjson(
+            "http://localhost:8000/",
+            "/research/stream",
+            {"question": "q"},
+            formatter=lambda event: "",
+        )
+    )
+
+    assert captured == [
+        "http://localhost:8000/health",
+        "http://localhost:8000/optimize",
+        "http://localhost:8000/research/stream",
+    ]
+
+
 def test_post_json_warns_and_logs_when_falling_back(monkeypatch) -> None:
     """POST helper should warn and print that the UI is using a mock response."""
     warnings: list[str] = []

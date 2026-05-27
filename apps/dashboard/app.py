@@ -287,16 +287,61 @@ _rng = np.random.default_rng(42)
 
 
 def _mock_optimize(risk_aversion: float = 1.0) -> dict:
-    w = _rng.dirichlet(np.ones(len(_ASSETS)) * (1 / risk_aversion))
+    seed = 4242 + int(round(float(risk_aversion) * 1000))
+    rng = np.random.default_rng(seed)
+    concentration = np.full(len(_ASSETS), 1.0 / max(float(risk_aversion), 0.1))
+    weights = rng.dirichlet(concentration)
+    portfolio_daily = rng.normal(0.0005, 0.012, 252)
+    benchmark_daily = rng.normal(0.0003, 0.010, 252)
+    portfolio_cum = np.cumprod(1 + portfolio_daily)
+    benchmark_cum = np.cumprod(1 + benchmark_daily)
     dates = pd.date_range("2024-01-01", periods=252, freq="B").strftime("%Y-%m-%d").tolist()
+    portfolio_return = float(portfolio_cum[-1] / portfolio_cum[0] - 1.0)
     return {
-        "weights": dict(zip(_ASSETS, w.tolist())),
+        "status": "mock",
+        "message": "API 연결 실패로 mock 포트폴리오를 표시합니다.",
+        "elapsed_ms": 0.0,
+        "timed_out": False,
+        "tickers": list(_ASSETS),
+        "weights": dict(zip(_ASSETS, weights.tolist())),
+        "risk_profile": "balanced",
+        "expected_return": round(portfolio_return, 6),
+        "expected_volatility": round(float(np.std(portfolio_daily, ddof=1) * np.sqrt(252)), 6),
         "returns": {
             "date": dates,
-            "portfolio": np.cumprod(1 + _rng.normal(0.0005, 0.012, 252)).tolist(),
-            "benchmark": np.cumprod(1 + _rng.normal(0.0003, 0.010, 252)).tolist(),
+            "portfolio": portfolio_cum.tolist(),
+            "benchmark": benchmark_cum.tolist(),
         },
     }
+
+
+def _ensure_portfolio_data(
+    risk_aversion: float,
+    current_risk_tags: list[str],
+    current_risk_signals: list[dict[str, Any]],
+    *,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Return the latest portfolio result, refreshing only when requested."""
+    cached_data = st.session_state.get("portfolio_data")
+    if cached_data and not refresh:
+        return cached_data
+
+    payload = build_optimize_payload(risk_aversion, current_risk_tags, current_risk_signals)
+    with st.spinner("POST /optimize 호출 중…"):
+        data = _post("/optimize", payload)
+
+    if not data:
+        data = _mock_optimize(risk_aversion)
+    else:
+        data = dict(data)
+        data.setdefault("status", "ready")
+        data.setdefault("message", "포트폴리오 최적화 결과입니다.")
+
+    st.session_state["portfolio_data"] = data
+    st.session_state["portfolio_payload"] = payload
+    st.session_state["portfolio_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return data
 
 
 def _mock_backtest() -> dict:
@@ -507,16 +552,13 @@ def portfolio_page() -> None:
         caption += f" | 저장 시각: {latest_updated_at}"
     st.caption(caption)
 
-    if st.button("최적화 실행", key="btn_optimize"):
-        with st.spinner("POST /optimize 호출 중…"):
-            payload = build_optimize_payload(
-                risk_aversion,
-                current_risk_tags,
-                current_risk_signals,
-            )
-            data = _post("/optimize", payload) or _mock_optimize(risk_aversion)
-    else:
-        data = _mock_optimize(risk_aversion)
+    refresh_requested = st.button("최적화 실행", key="btn_optimize")
+    data = _ensure_portfolio_data(
+        risk_aversion,
+        current_risk_tags,
+        current_risk_signals,
+        refresh=refresh_requested or "portfolio_data" not in st.session_state,
+    )
 
     # 기간 슬라이싱
     n = _PERIOD_MONTHS[period]
@@ -524,13 +566,22 @@ def portfolio_page() -> None:
     x = ret["date"][-n:] if n else ret["date"]
     port_vals = ret["portfolio"][-n:] if n else ret["portfolio"]
     bm_vals = ret["benchmark"][-n:] if n else ret["benchmark"]
+    data_status = data.get("status", "unknown")
+    data_message = data.get("message", "")
+    elapsed_ms = float(data.get("elapsed_ms", 0.0) or 0.0)
+    data_start = x[0] if x else "-"
+    data_end = x[-1] if x else "-"
+    st.caption(
+        f"상태: {data_status} | 메시지: {data_message} | 소요 시간: {elapsed_ms:.1f}ms | "
+        f"데이터 기간: {data_start} ~ {data_end}"
+    )
 
     cum_ret, excess = calculate_period_return_metrics(port_vals, bm_vals)
     top_asset = max(data["weights"], key=data["weights"].get)
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("누적 수익률", f"{cum_ret:.1%}", border=True)
-    k2.metric("초과 수익", f"{excess:.1%}", delta=f"{excess:.2%} vs KOSPI", border=True)
+    k2.metric("초과 수익", f"{excess:.1%}", delta=f"{excess:.2%} vs SPY", border=True)
     k3.metric("최대 비중 자산", top_asset, f"{data['weights'][top_asset]:.1%}", border=True)
     k4.metric("편입 종목 수", f"{len(data['weights'])}개", border=True)
 
@@ -557,7 +608,7 @@ def portfolio_page() -> None:
                         "itemStyle": {"color": _PALETTE[0]},
                     },
                     {
-                        "name": "벤치마크(KOSPI)",
+                        "name": "벤치마크(SPY)",
                         "type": "line",
                         "smooth": True,
                         "data": bm_vals,
