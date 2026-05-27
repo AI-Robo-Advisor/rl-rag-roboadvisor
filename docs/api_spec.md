@@ -151,9 +151,11 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 | `risk_profile` | `"conservative" \| "balanced" \| "aggressive"` | 아니오 | `"balanced"` | 위험 성향 프리셋 |
 | `risk_aversion` | `float` (> 0) | 아니오 | `null` | 수치형 위험 회피 계수. 설정 시 `risk_profile` 보다 우선 |
 | `risk_tags` | `list[str] \| null` | 아니오 | `null` | (호환용) RL 연동 태그. `risk_signals`가 없을 때 severity=1.0으로 승격 |
-| `risk_signals` | `list[RiskSignal] \| null` | 아니오 | `null` | 정량 리스크 신호. PPO ready 경로에서 `apply_decay(severity, 0, tag)` 후 `risk_vector`로 변환 |
+| `risk_signals` | `list[RiskSignal] \| null` | 아니오 | `null` | 정량 리스크 신호. PPO ready 경로에서 `apply_decay(severity, 0, tag)` 후 `risk_vector`로 변환. `severity` 범위 밖 값은 거부 |
 
 > **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_signals": [{"tag":"equity_market_risk","severity":0.66}]}`
+
+`risk_signals`와 `risk_tags`가 모두 비어 있으면 API는 요청별 고정 risk_vector를 주입하지 않고 `PortfolioEnv` 기본 동작을 사용한다. 이 경우 `risk_vectors_daily.parquet`가 있으면 최신 거래일 기준 날짜별 리스크 벡터가 자동 로드된다.
 
 #### 응답 `200 OK`
 

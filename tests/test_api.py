@@ -76,7 +76,7 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
         risk_signals: list | None = None,
     ) -> dict[str, float]:
         assert risk_tags == ["equity_market_risk"]
-        assert risk_signals is not None
+        assert risk_signals is None
         return {tickers[0]: 0.7, tickers[1]: 0.3}
 
     monkeypatch.setattr(
@@ -96,7 +96,7 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
 
 
 def test_predict_ppo_weights_sets_risk_vector_from_signals(monkeypatch) -> None:
-    """PPO inference should set env risk_vector using risk_signals."""
+    """PPO inference should pass request risk_vector during env construction."""
     captured: dict[str, object] = {}
     dates = pd.date_range("2024-01-01", periods=40, freq="B")
     returns = pd.DataFrame({"SPY": [0.001] * 40, "QQQ": [0.002] * 40}, index=dates)
@@ -121,7 +121,6 @@ def test_predict_ppo_weights_sets_risk_vector_from_signals(monkeypatch) -> None:
             captured["init_kwargs"] = kwargs
             self.features_df = features
             self.asset_names = ["SPY", "QQQ"]
-            self._risk_vector = None
 
         def reset(self):
             return [0.0], {}
@@ -133,8 +132,7 @@ def test_predict_ppo_weights_sets_risk_vector_from_signals(monkeypatch) -> None:
             return action
 
         def set_risk_vector(self, risk_vector):
-            self._risk_vector = risk_vector
-            captured["risk_vector"] = risk_vector
+            captured["set_called"] = True
 
     import src.rl.env as rl_env
 
@@ -153,10 +151,11 @@ def test_predict_ppo_weights_sets_risk_vector_from_signals(monkeypatch) -> None:
     )
 
     assert weights == {"SPY": 0.8, "QQQ": 0.2}
-    assert "risk_vector" not in captured["init_kwargs"]
-    assert captured["risk_vector"][0] == 0.0
-    assert math.isclose(float(captured["risk_vector"][1]), 0.66, rel_tol=0, abs_tol=1e-6)
-    assert captured["risk_vector"][2] == 1.0
+    risk_vector = captured["init_kwargs"]["risk_vector"]
+    assert risk_vector[0] == 0.0
+    assert math.isclose(float(risk_vector[1]), 0.66, rel_tol=0, abs_tol=1e-6)
+    assert risk_vector[2] == 1.0
+    assert "set_called" not in captured
 
 
 def test_predict_ppo_weights_uses_env_default_when_no_signals(monkeypatch) -> None:
@@ -209,6 +208,22 @@ def test_predict_ppo_weights_uses_env_default_when_no_signals(monkeypatch) -> No
     assert weights == {"SPY": 0.8, "QQQ": 0.2}
     assert "risk_vector" not in captured["init_kwargs"]
     assert "set_called" not in captured
+
+
+def test_normalize_risk_signals_rejects_invalid_rows() -> None:
+    """Risk signal normalization should skip malformed, unknown, or out-of-range rows."""
+    signals = api_services._normalize_risk_signals(
+        [
+            {"tag": "equity_market_risk", "severity": 0.66},
+            {"tag": "unknown", "severity": 1.0},
+            {"tag": "macro_rate_risk", "severity": 1.0001},
+            {"tag": "geopolitical_fx_risk", "severity": "bad"},
+        ]
+    )
+
+    assert [signal.model_dump() for signal in signals] == [
+        {"tag": "equity_market_risk", "severity": 0.66}
+    ]
 
 
 def test_explain_returns_feature_contributions() -> None:

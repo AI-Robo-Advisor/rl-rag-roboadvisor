@@ -134,7 +134,7 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
   → st.session_state["risk_tags"], st.session_state["risk_signals"]
   → /optimize request.(risk_tags, risk_signals)
   → apply_decay(severity, days_elapsed=0, tag)  # risk_signals 우선
-  → PortfolioEnv.set_risk_vector(...)
+  → PortfolioEnv(risk_vector=...)
 ```
 
 공통 태그 순서는 항상 아래와 같다.

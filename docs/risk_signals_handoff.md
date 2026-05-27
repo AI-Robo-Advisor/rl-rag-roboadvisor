@@ -35,12 +35,13 @@
 
 - 파일: `apps/api/services.py`
 - `/research`:
-  - `state["risk_signals"]`가 있으면 그대로 정규화해 응답
+  - `state["risk_signals"]`가 있으면 유효한 `tag`와 `0.0 <= severity <= 1.0` 행만 정규화해 응답
   - 없으면 `risk_tags`를 `severity=1.0`으로 승격해 fallback
 - `/optimize`:
   - `risk_signals` 우선
   - 없으면 legacy `risk_tags` 승격
   - 둘 다 없으면 `PortfolioEnv` 기본 동작(파케 자동 로드)
+  - 신호가 있으면 `PortfolioEnv` 생성자에 `risk_vector`를 직접 넘겨 불필요한 파케 자동 로드를 피함
 
 ## RL 벡터 변환
 

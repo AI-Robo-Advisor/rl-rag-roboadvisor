@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator
 
 import numpy as np
 import pandas as pd
+from pydantic import ValidationError
 
 from apps.api.config import settings
 from apps.api.schemas import (
@@ -158,12 +159,11 @@ def build_portfolio_response(
     start = perf_counter()
     selected_tickers = tickers or DEFAULT_TICKERS
     selected_risk_tags = risk_tags or []
-    selected_risk_signals = risk_signals or _risk_signals_from_tags(selected_risk_tags)
     try:
         weights = _predict_ppo_weights_with_timeout(
             selected_tickers,
             selected_risk_tags,
-            selected_risk_signals,
+            risk_signals,
         )
     except Exception as exc:
         return build_fallback_portfolio(
@@ -575,18 +575,19 @@ def _predict_ppo_weights(
 
     from src.rl.env import PortfolioEnv
 
+    selected_signals = _resolve_risk_signals(risk_tags, risk_signals)
+    risk_vector = _signals_to_vector(selected_signals) if selected_signals else None
+    env_kwargs: dict[str, Any] = {
+        "returns_df": returns,
+        "features_df": features,
+        "lookback": 30,
+        "reward_type": "sharpe",
+    }
+    if risk_vector is not None:
+        env_kwargs["risk_vector"] = risk_vector
+
     model = _load_ppo_model()
-    env = PortfolioEnv(
-        returns_df=returns,
-        features_df=features,
-        lookback=30,
-        reward_type="sharpe",
-    )
-    selected_signals = _normalize_risk_signals(risk_signals) or _risk_signals_from_tags(
-        risk_tags or []
-    )
-    if selected_signals:
-        env.set_risk_vector(_signals_to_vector(selected_signals))
+    env = PortfolioEnv(**env_kwargs)
     obs, _ = env.reset()
     env.current_step = len(env.features_df) - 1
     obs = env._get_observation()
@@ -1192,6 +1193,14 @@ def _risk_signals_from_tags(tags: list[str]) -> list[RiskSignal]:
     return [RiskSignal(tag=tag, severity=1.0) for tag in _normalize_rl_risk_tags(tags)]
 
 
+def _resolve_risk_signals(
+    risk_tags: list[str] | None,
+    risk_signals: Any,
+) -> list[RiskSignal]:
+    """Resolve request risk_signals, falling back to legacy risk_tags only once."""
+    return _normalize_risk_signals(risk_signals) or _risk_signals_from_tags(risk_tags or [])
+
+
 def _normalize_risk_signals(raw_signals: Any) -> list[RiskSignal]:
     """Normalize raw risk signal payload into validated RiskSignal entries."""
     if not isinstance(raw_signals, list):
@@ -1209,7 +1218,7 @@ def _normalize_risk_signals(raw_signals: Any) -> list[RiskSignal]:
             continue
         try:
             normalized.append(RiskSignal(tag=str(tag), severity=float(severity)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ValidationError):
             continue
     return normalized
 
