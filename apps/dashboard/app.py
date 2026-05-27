@@ -323,11 +323,11 @@ def _ensure_portfolio_data(
     refresh: bool = False,
 ) -> dict[str, Any]:
     """Return the latest portfolio result, refreshing only when requested."""
+    payload = build_optimize_payload(risk_aversion, current_risk_tags, current_risk_signals)
     cached_data = st.session_state.get("portfolio_data")
+
     if cached_data and not refresh:
         return cached_data
-
-    payload = build_optimize_payload(risk_aversion, current_risk_tags, current_risk_signals)
     with st.spinner("POST /optimize 호출 중…"):
         data = _post("/optimize", payload)
 
@@ -553,6 +553,16 @@ def portfolio_page() -> None:
     st.caption(caption)
 
     refresh_requested = st.button("최적화 실행", key="btn_optimize")
+
+    current_payload = build_optimize_payload(risk_aversion, current_risk_tags, current_risk_signals)
+    cached_payload = st.session_state.get("portfolio_payload")
+    if (
+        cached_payload is not None
+        and cached_payload != current_payload
+        and not refresh_requested
+    ):
+        st.warning("설정이 변경되었습니다. '최적화 실행'을 다시 눌러 결과를 업데이트하세요.")
+
     data = _ensure_portfolio_data(
         risk_aversion,
         current_risk_tags,
