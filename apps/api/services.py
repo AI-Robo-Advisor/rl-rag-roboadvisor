@@ -36,7 +36,7 @@ from apps.api.schemas import (
     StrategyEffectStats,
     TukeyRow,
 )
-from src.agent.risk_tags import apply_decay
+from src.agent.risk_tags import RL_RISK_TAGS, apply_decay
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
@@ -60,16 +60,8 @@ _STREAM_EVENT_ALLOWLIST = {
     "on_tool_end",
 }
 REASONING_WINDOW_DAYS = 3
-_TAG_TO_SEVERITY_COL: dict[str, str] = {
-    "macro_rate_risk": "macro_rate_risk",
-    "equity_market_risk": "equity_market_risk",
-    "geopolitical_fx_risk": "geopolitical_fx_risk",
-}
-_RISK_FEATURE_TO_TAG: dict[str, str] = {
-    "risk_macro_rate_risk": "macro_rate_risk",
-    "risk_equity_market_risk": "equity_market_risk",
-    "risk_geopolitical_fx_risk": "geopolitical_fx_risk",
-}
+_TAG_TO_SEVERITY_COL: dict[str, str] = {tag: tag for tag in RL_RISK_TAGS}
+_RISK_FEATURE_TO_TAG: dict[str, str] = {f"risk_{tag}": tag for tag in RL_RISK_TAGS}
 WINDOW_PERIODS: dict[BacktestWindow, tuple[str, str]] = {
     "w1": ("2022-01-01", "2022-12-31"),
     "w2": ("2023-01-01", "2023-12-31"),

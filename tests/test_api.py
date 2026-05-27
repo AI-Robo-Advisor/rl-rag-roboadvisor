@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import apps.api.services as api_services
 from apps.api.main import app
+from src.agent.risk_tags import RL_RISK_TAGS
 
 client = TestClient(app)
 
@@ -345,6 +346,12 @@ def test_build_reasoning_events_returns_reasoning_event_schema(monkeypatch) -> N
         "reasoning",
         "source",
     } <= set(row)
+
+
+def test_reasoning_risk_feature_maps_are_derived_from_rl_tags() -> None:
+    """Reasoning risk-feature mappings should stay aligned with RL risk tags."""
+    assert api_services._TAG_TO_SEVERITY_COL == {tag: tag for tag in RL_RISK_TAGS}
+    assert api_services._RISK_FEATURE_TO_TAG == {f"risk_{tag}": tag for tag in RL_RISK_TAGS}
 
 
 def test_build_reasoning_events_uses_past_window_and_skips_empty_reasoning(monkeypatch) -> None:
