@@ -176,6 +176,8 @@ def test_extract_risk_signals_from_research_event_filters_schema() -> None:
             {"tag": "equity_market_risk", "severity": 0.66},
             {"tag": "unknown", "severity": 1.0},
             {"tag": "macro_rate_risk", "severity": "bad"},
+            {"tag": "macro_rate_risk", "severity": 1.0001},
+            {"tag": "geopolitical_fx_risk", "severity": -0.1},
         ],
     }
 

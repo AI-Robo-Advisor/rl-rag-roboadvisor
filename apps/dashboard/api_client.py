@@ -26,28 +26,31 @@ def _mock_warning_message(endpoint: str, exc: Exception) -> str:
 
 def extract_risk_tags_from_research_event(event: dict[str, Any]) -> list[str]:
     """Return RL risk tags from a research stream complete/fallback event."""
-    event_type = event.get("type")
-    if event_type == "complete":
-        raw_tags = event.get("risk_tags", [])
-    elif event_type == "fallback":
-        data = event.get("data") or {}
-        raw_tags = data.get("risk_tags", []) if isinstance(data, dict) else []
-    else:
-        raw_tags = []
-    return [str(tag) for tag in raw_tags if str(tag) in RL_RISK_TAGS]
+    return extract_risk_context_from_research_event(event)[0]
 
 
 def extract_risk_signals_from_research_event(event: dict[str, Any]) -> list[dict[str, Any]]:
     """Return validated risk_signals from research stream events."""
+    return extract_risk_context_from_research_event(event)[1]
+
+
+def extract_risk_context_from_research_event(
+    event: dict[str, Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Return validated risk_tags and risk_signals from a final research event."""
     event_type = event.get("type")
     if event_type == "complete":
+        raw_tags = event.get("risk_tags", [])
         raw_signals = event.get("risk_signals", [])
     elif event_type == "fallback":
         data = event.get("data") or {}
+        raw_tags = data.get("risk_tags", []) if isinstance(data, dict) else []
         raw_signals = data.get("risk_signals", []) if isinstance(data, dict) else []
     else:
+        raw_tags = []
         raw_signals = []
 
+    tags = [str(tag) for tag in raw_tags if str(tag) in RL_RISK_TAGS]
     normalized: list[dict[str, Any]] = []
     for item in raw_signals:
         if not isinstance(item, dict):
@@ -59,35 +62,39 @@ def extract_risk_signals_from_research_event(event: dict[str, Any]) -> list[dict
             severity = float(item.get("severity", 0.0))
         except (TypeError, ValueError):
             continue
-        normalized.append({"tag": tag, "severity": max(0.0, min(1.0, severity))})
-    return normalized
+        if not 0.0 <= severity <= 1.0:
+            continue
+        normalized.append({"tag": tag, "severity": severity})
+    return tags, normalized
 
 
 def research_result_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize a research stream final event into dashboard session data."""
     event_type = event.get("type")
     if event_type == "complete":
+        tags, signals = extract_risk_context_from_research_event(event)
         return {
             "status": "ready",
             "question": str(event.get("question", "")),
             "report": str(event.get("report", "")),
             "sources": [str(source) for source in event.get("sources", []) if source],
             "reasoning_trace": str(event.get("reasoning_trace", "")),
-            "risk_tags": extract_risk_tags_from_research_event(event),
-            "risk_signals": extract_risk_signals_from_research_event(event),
+            "risk_tags": tags,
+            "risk_signals": signals,
         }
     if event_type == "fallback":
         data = event.get("data") or {}
         if not isinstance(data, dict):
             return None
+        tags, signals = extract_risk_context_from_research_event(event)
         return {
             "status": str(data.get("status", "fallback")),
             "question": str(data.get("question", "")),
             "report": str(data.get("report", "")),
             "sources": [str(source) for source in data.get("sources", []) if source],
             "reasoning_trace": str(data.get("reasoning_trace", "")),
-            "risk_tags": extract_risk_tags_from_research_event(event),
-            "risk_signals": extract_risk_signals_from_research_event(event),
+            "risk_tags": tags,
+            "risk_signals": signals,
         }
     return None
 

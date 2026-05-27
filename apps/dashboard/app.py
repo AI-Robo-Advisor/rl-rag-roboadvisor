@@ -23,8 +23,7 @@ try:
     from apps.dashboard.api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
-        extract_risk_signals_from_research_event,
-        extract_risk_tags_from_research_event,
+        extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
         post_json,
@@ -37,8 +36,7 @@ except ModuleNotFoundError:
     from api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
-        extract_risk_signals_from_research_event,
-        extract_risk_tags_from_research_event,
+        extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
         post_json,
@@ -109,8 +107,7 @@ def _format_research_event(event: dict[str, Any]) -> str:
 
 def _remember_research_risk_tags(event: dict[str, Any]) -> None:
     """Store stream risk tags in Streamlit session state for /optimize."""
-    tags = extract_risk_tags_from_research_event(event)
-    signals = extract_risk_signals_from_research_event(event)
+    tags, signals = extract_risk_context_from_research_event(event)
     if event.get("type") in {"complete", "fallback"}:
         st.session_state["risk_tags"] = tags
         st.session_state["risk_signals"] = signals
