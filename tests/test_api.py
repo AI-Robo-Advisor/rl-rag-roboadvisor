@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import apps.api.services as api_services
 from apps.api.main import app
+from src.agent.risk_tags import RL_RISK_TAGS
 
 client = TestClient(app)
 
@@ -258,6 +259,17 @@ def test_explain_returns_feature_contributions() -> None:
     assert isinstance(payload["timed_out"], bool)
 
 
+def test_explain_invalid_date_falls_back_without_reasoning_context() -> None:
+    """Invalid explain dates should not fail while building reasoning context."""
+    response = client.post("/explain", json={"date": "not-a-date", "top_k": 2})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["date"] == "not-a-date"
+    assert payload["reasoning_context"] == []
+    assert all(item["reasoning_context"] == [] for item in payload["feature_contributions"])
+
+
 def test_explain_uses_ready_shap_module_when_available(monkeypatch) -> None:
     """POST /explain should use src.rl.shap when the module can compute a result."""
 
@@ -328,8 +340,25 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     api_services._load_shap_artifact.cache_clear()
 
 
-def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) -> None:
-    """Risk SHAP features should receive per-feature reasoning_context only."""
+def test_explain_attaches_reasoning_context_for_risk_features_only(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """POST /explain should attach per-feature reasoning only to risk_* features."""
+    events_path = tmp_path / "unified_events.parquet"
+    pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "테스트 reasoning",
+                "equity_market_risk": 0.66,
+                "macro_rate_risk": 0.0,
+                "geopolitical_fx_risk": 0.0,
+            }
+        ]
+    ).to_parquet(events_path)
 
     def fake_compute_ready_shap(date: str | None, top_k: int) -> dict:
         return {
@@ -337,24 +366,27 @@ def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) 
             "date": date,
             "target_date": "2024-12-30",
             "base_value": 0.1,
-            "prediction": 0.17,
+            "prediction": 0.13,
             "feature_contributions": [
-                {"feature": "risk_equity_market_risk", "value": 1.0, "contribution": 0.05},
-                {"feature": "SPY_RSI", "value": 60.0, "contribution": 0.02},
+                {
+                    "feature": "risk_equity_market_risk",
+                    "value": 0.9,
+                    "contribution": 0.03,
+                },
+                {
+                    "feature": "SPY_RSI",
+                    "value": 0.5,
+                    "contribution": 0.01,
+                },
             ],
             "feature_names": ["risk_equity_market_risk", "SPY_RSI"],
-            "shap_values": [0.05, 0.02],
-            "reasoning_context": [
-                {
-                    "date": "2024-12-29",
-                    "source": "fred",
-                    "primary_tag": "equity_market_risk",
-                    "reasoning": "VIX spike to 32.0",
-                }
-            ],
+            "shap_values": [0.03, 0.01],
             "message": f"PPO SHAP 분석 완료 top_k={top_k}",
         }
 
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    api_services._load_unified_events.cache_clear()
+    monkeypatch.setattr(api_services, "_shap_from_artifact", lambda date, top_k: None)
     monkeypatch.setattr(
         api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
     )
@@ -362,22 +394,17 @@ def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) 
     response = client.post("/explain", json={"date": "2024-12-31", "top_k": 2})
     assert response.status_code == 200
     payload = response.json()
-
-    assert payload["status"] == "ready"
     assert len(payload["reasoning_context"]) == 1
-    assert payload["reasoning_context"][0]["tag"] == "equity_market_risk"
-    assert payload["reasoning_context"][0]["source"] == "fred"
-
-    risk_feature = payload["feature_contributions"][0]
-    normal_feature = payload["feature_contributions"][1]
-    assert risk_feature["feature"] == "risk_equity_market_risk"
-    assert len(risk_feature["reasoning_context"]) == 1
-    assert risk_feature["reasoning_context"][0]["tag"] == "equity_market_risk"
-    assert normal_feature["feature"] == "SPY_RSI"
-    assert normal_feature["reasoning_context"] == []
+    assert payload["reasoning_context"][0]["reasoning"] == "테스트 reasoning"
+    assert len(payload["feature_contributions"][0]["reasoning_context"]) == 1
+    assert (
+        payload["feature_contributions"][0]["reasoning_context"][0]["tag"]
+        == "equity_market_risk"
+    )
+    assert payload["feature_contributions"][1]["reasoning_context"] == []
 
 
-def test_build_reasoning_events_returns_reasoning_event_schema() -> None:
+def test_build_reasoning_events_normalizes_raw_context() -> None:
     """Reasoning mapper should normalize SHAP raw events into API schema."""
     events = api_services._build_reasoning_events(
         "2024-12-31",
@@ -406,6 +433,126 @@ def test_build_reasoning_events_returns_reasoning_event_schema() -> None:
     assert event["days_elapsed"] == 1
     assert event["tag"] == "macro_rate_risk"
     assert event["source"] == "manual_seed"
+
+
+def test_build_reasoning_events_returns_reasoning_event_schema(monkeypatch) -> None:
+    """Reasoning event builder should output 7-key schema records."""
+    events = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "시장 급락 신호",
+                "equity_market_risk": 0.66,
+                "macro_rate_risk": 0.0,
+                "geopolitical_fx_risk": 0.33,
+            }
+        ]
+    )
+    monkeypatch.setattr(api_services, "_load_unified_events", lambda: events)
+
+    records = api_services._build_reasoning_events("2024-12-30")
+    assert len(records) == 1
+    row = records[0].model_dump()
+    assert {
+        "event_date",
+        "days_elapsed",
+        "tag",
+        "severity",
+        "decayed_score",
+        "reasoning",
+        "source",
+    } <= set(row)
+
+
+def test_reasoning_risk_feature_maps_are_derived_from_rl_tags() -> None:
+    """Reasoning risk-feature mappings should stay aligned with RL risk tags."""
+    assert api_services._TAG_TO_SEVERITY_COL == {tag: tag for tag in RL_RISK_TAGS}
+    for tag in RL_RISK_TAGS:
+        assert api_services._RISK_FEATURE_TO_TAG[f"risk_{tag}"] == tag
+    assert api_services._RISK_FEATURE_TO_TAG["risk_macro"] == "macro_rate_risk"
+    assert api_services._RISK_FEATURE_TO_TAG["risk_equity"] == "equity_market_risk"
+    assert api_services._RISK_FEATURE_TO_TAG["risk_geo"] == "geopolitical_fx_risk"
+
+
+def test_build_reasoning_events_uses_past_window_and_skips_empty_reasoning(monkeypatch) -> None:
+    """Reasoning context should not include future events or empty reasoning rows."""
+    events = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-28",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "past market risk",
+                "equity_market_risk": 0.66,
+            },
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "",
+                "equity_market_risk": 0.5,
+            },
+            {
+                "date": "2024-12-31",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "future market risk",
+                "equity_market_risk": 0.9,
+            },
+        ]
+    )
+    monkeypatch.setattr(api_services, "_load_unified_events", lambda: events)
+
+    records = api_services._build_reasoning_events("2024-12-30")
+
+    assert [record.reasoning for record in records] == ["past market risk"]
+    assert all(record.days_elapsed >= 0 for record in records)
+
+
+def test_load_unified_events_reloads_when_parquet_mtime_changes(monkeypatch, tmp_path) -> None:
+    """Unified events should be reloaded when the parquet asset changes."""
+    events_path = tmp_path / "unified_events.parquet"
+    first = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "first event",
+            }
+        ]
+    )
+    second = first.assign(reasoning=["second event"])
+    first.to_parquet(events_path)
+
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    loaded_first = api_services._load_unified_events()
+
+    time.sleep(0.01)
+    second.to_parquet(events_path)
+    loaded_second = api_services._load_unified_events()
+
+    assert loaded_first.iloc[0]["reasoning"] == "first event"
+    assert loaded_second.iloc[0]["reasoning"] == "second event"
+
+
+def test_load_unified_events_returns_empty_dataframe_on_read_failure(monkeypatch, tmp_path) -> None:
+    """Unified events loader should not break /explain when parquet is unreadable."""
+    events_path = tmp_path / "unified_events.parquet"
+    events_path.write_text("not parquet", encoding="utf-8")
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    api_services._load_unified_events.cache_clear()
+
+    def raise_read_error(path):
+        raise RuntimeError(f"cannot read {path}")
+
+    monkeypatch.setattr(pd, "read_parquet", raise_read_error)
+
+    loaded = api_services._load_unified_events()
+
+    assert loaded.empty
 
 
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
