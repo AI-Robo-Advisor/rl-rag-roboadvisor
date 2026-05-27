@@ -8,6 +8,8 @@ import requests
 
 from apps.dashboard.api_client import (
     build_optimize_payload,
+    calculate_period_return_metrics,
+    explain_reasoning_rows,
     extract_risk_signals_from_research_event,
     extract_risk_tags_from_research_event,
     format_research_log_event,
@@ -166,6 +168,73 @@ def test_build_optimize_payload_includes_session_risk_tags() -> None:
         "risk_tags": ["equity_market_risk", "geopolitical_fx_risk"],
         "risk_signals": [],
     }
+
+
+def test_calculate_period_return_metrics_rebases_cumulative_series() -> None:
+    """Dashboard period metrics should compare returns within the selected slice."""
+    cumulative_return, excess_return = calculate_period_return_metrics(
+        [2.0, 3.0],
+        [5.0, 6.0],
+    )
+
+    assert cumulative_return == 0.5
+    assert round(excess_return, 10) == 0.3
+
+
+def test_explain_reasoning_rows_includes_global_and_feature_context() -> None:
+    """Dashboard should render both response-level and per-feature SHAP reasoning."""
+    rows = explain_reasoning_rows(
+        {
+            "reasoning_context": [
+                {
+                    "event_date": "2024-12-30",
+                    "tag": "equity_market_risk",
+                    "severity": 0.66,
+                    "decayed_score": 0.5,
+                    "reasoning": "시장 급락",
+                    "source": "gdelt",
+                }
+            ],
+            "feature_contributions": [
+                {
+                    "feature": "risk_equity_market_risk",
+                    "reasoning_context": [
+                        {
+                            "event_date": "2024-12-30",
+                            "tag": "equity_market_risk",
+                            "severity": 0.66,
+                            "decayed_score": 0.5,
+                            "reasoning": "시장 급락",
+                            "source": "gdelt",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert rows == [
+        {
+            "구분": "전체",
+            "피처": "",
+            "날짜": "2024-12-30",
+            "태그": "equity_market_risk",
+            "강도": 0.66,
+            "감쇠점수": 0.5,
+            "근거": "시장 급락",
+            "출처": "gdelt",
+        },
+        {
+            "구분": "피처",
+            "피처": "risk_equity_market_risk",
+            "날짜": "2024-12-30",
+            "태그": "equity_market_risk",
+            "강도": 0.66,
+            "감쇠점수": 0.5,
+            "근거": "시장 급락",
+            "출처": "gdelt",
+        },
+    ]
 
 
 def test_extract_risk_signals_from_research_event_filters_schema() -> None:

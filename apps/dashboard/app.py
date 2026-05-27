@@ -23,6 +23,8 @@ try:
     from apps.dashboard.api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
+        calculate_period_return_metrics,
+        explain_reasoning_rows,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -36,6 +38,8 @@ except ModuleNotFoundError:
     from api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
+        calculate_period_return_metrics,
+        explain_reasoning_rows,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -521,10 +525,7 @@ def portfolio_page() -> None:
     port_vals = ret["portfolio"][-n:] if n else ret["portfolio"]
     bm_vals = ret["benchmark"][-n:] if n else ret["benchmark"]
 
-    ret_arr = np.array(port_vals)
-    bm_arr = np.array(bm_vals)
-    cum_ret = float(ret_arr[-1] - 1)
-    excess = float(ret_arr[-1] - bm_arr[-1])
+    cum_ret, excess = calculate_period_return_metrics(port_vals, bm_vals)
     top_asset = max(data["weights"], key=data["weights"].get)
 
     k1, k2, k3, k4 = st.columns(4)
@@ -750,6 +751,14 @@ def shap_page() -> None:
                 title="Force Plot (빨강=양, 파랑=음)",
                 key="shap_force",
             )
+
+    reasoning_rows = explain_reasoning_rows(sd)
+    with st.container(border=True):
+        st.markdown("**Reasoning Context**")
+        if reasoning_rows:
+            st.dataframe(pd.DataFrame(reasoning_rows), hide_index=True, use_container_width=True)
+        else:
+            st.caption("해당 분석 날짜와 top SHAP 피처에 연결된 reasoning context가 없습니다.")
 
 
 def research_page() -> None:
