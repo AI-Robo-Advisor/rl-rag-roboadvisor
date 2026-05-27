@@ -19,6 +19,64 @@ _RESEARCH_NODE_LABELS = {
 }
 
 
+def _build_url(base_url: str, endpoint: str) -> str:
+    """Join a dashboard base URL and endpoint without double slashes."""
+    return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def calculate_period_return_metrics(
+    portfolio_cumulative: list[float],
+    benchmark_cumulative: list[float],
+) -> tuple[float, float]:
+    """Return selected-period cumulative and excess returns from cumulative wealth indexes."""
+    if not portfolio_cumulative or not benchmark_cumulative:
+        return 0.0, 0.0
+
+    portfolio_start = float(portfolio_cumulative[0])
+    benchmark_start = float(benchmark_cumulative[0])
+    if portfolio_start <= 0 or benchmark_start <= 0:
+        return 0.0, 0.0
+
+    portfolio_return = float(portfolio_cumulative[-1]) / portfolio_start - 1.0
+    benchmark_return = float(benchmark_cumulative[-1]) / benchmark_start - 1.0
+    return portfolio_return, portfolio_return - benchmark_return
+
+
+def explain_reasoning_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten SHAP response reasoning context for dashboard display."""
+    rows: list[dict[str, Any]] = []
+
+    def append_rows(scope: str, feature: str, events: Any) -> None:
+        if not isinstance(events, list):
+            return
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            rows.append(
+                {
+                    "구분": scope,
+                    "피처": feature,
+                    "날짜": str(event.get("event_date", "")),
+                    "태그": str(event.get("tag", "")),
+                    "강도": float(event.get("severity") or 0.0),
+                    "감쇠점수": float(event.get("decayed_score") or 0.0),
+                    "근거": str(event.get("reasoning", "")),
+                    "출처": str(event.get("source", "")),
+                }
+            )
+
+    append_rows("전체", "", payload.get("reasoning_context"))
+    for contribution in payload.get("feature_contributions", []):
+        if not isinstance(contribution, dict):
+            continue
+        append_rows(
+            "피처",
+            str(contribution.get("feature", "")),
+            contribution.get("reasoning_context"),
+        )
+    return rows
+
+
 def _mock_warning_message(endpoint: str, exc: Exception) -> str:
     """Return a user-facing warning when the dashboard falls back to mock data."""
     return f"API 연결 실패 ({endpoint}): {exc} — 이는 mock 응답입니다."
@@ -156,7 +214,7 @@ def get_json(
 ) -> dict[str, Any] | None:
     """Perform a GET request and return JSON, or fall back to None."""
     try:
-        resp = requests.get(f"{base_url}{endpoint}", params=params, timeout=timeout)
+        resp = requests.get(_build_url(base_url, endpoint), params=params, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -179,7 +237,7 @@ def post_json(
 ) -> dict[str, Any] | None:
     """Perform a POST request and return JSON, or fall back to None."""
     try:
-        resp = requests.post(f"{base_url}{endpoint}", json=payload, timeout=timeout)
+        resp = requests.post(_build_url(base_url, endpoint), json=payload, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -204,7 +262,7 @@ def stream_ndjson(
     """Stream newline-delimited JSON events as formatted strings."""
     try:
         with requests.post(
-            f"{base_url}{endpoint}",
+            _build_url(base_url, endpoint),
             json=payload,
             stream=True,
             timeout=timeout,
