@@ -26,6 +26,13 @@ class HealthResponse(BaseModel):
     modules: dict[str, EndpointStatus]
 
 
+class RiskSignal(BaseModel):
+    """Quantized risk signal used for RL observation inputs."""
+
+    tag: RiskTag
+    severity: float = Field(ge=0.0, le=1.0)
+
+
 class OptimizeRequest(BaseModel):
     """Portfolio optimization request."""
 
@@ -33,7 +40,7 @@ class OptimizeRequest(BaseModel):
     risk_profile: RiskProfile = "balanced"
     risk_aversion: float | None = Field(default=None, gt=0)
     risk_tags: list[str] | None = None
-    risk_signals: list["RiskSignal"] | None = None
+    risk_signals: list[RiskSignal] | None = None
 
 
 class ReturnSeries(BaseModel):
@@ -64,13 +71,6 @@ class ExplainRequest(BaseModel):
 
     date: str | None = None
     top_k: int = Field(default=8, ge=1, le=20)
-
-
-class RiskSignal(BaseModel):
-    """Quantized risk signal used for RL observation inputs."""
-
-    tag: RiskTag
-    severity: float = Field(ge=0.0, le=1.0)
 
 
 class ReasoningEvent(BaseModel):
