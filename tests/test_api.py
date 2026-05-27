@@ -1,6 +1,7 @@
 """FastAPI Sprint 2 endpoint contract tests."""
 
 import json
+import logging
 import math
 import time
 from concurrent.futures import TimeoutError
@@ -66,6 +67,31 @@ def test_optimize_accepts_dashboard_risk_aversion_and_returns_series() -> None:
     assert len(returns["date"]) == len(returns["portfolio"]) == len(returns["benchmark"])
     assert all(value > 0 for value in returns["portfolio"])
     assert all(value > 0 for value in returns["benchmark"])
+
+
+def test_optimize_emits_e2e_log(caplog) -> None:
+    """POST /optimize should emit one structured E2E log for Docker inspection."""
+    caplog.set_level(logging.INFO, logger="apps.api.e2e")
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+
+    response = client.post("/optimize", json={"risk_aversion": 1.5})
+
+    assert response.status_code == 200
+    events = [
+        json.loads(record.message.removeprefix("E2E "))
+        for record in caplog.records
+        if record.name == "apps.api.e2e" and record.message.startswith("E2E ")
+    ]
+    assert any(
+        event["endpoint"] == "/optimize"
+        and event["status"] in {"ready", "fallback"}
+        and event["tickers_count"] == len(EXPECTED_TICKERS)
+        for event in events
+    )
+    assert any(
+        record.name == "uvicorn.error" and record.message.startswith("E2E ")
+        for record in caplog.records
+    )
 
 
 def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:

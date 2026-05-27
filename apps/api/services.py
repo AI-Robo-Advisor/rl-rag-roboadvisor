@@ -21,6 +21,7 @@ import pandas as pd
 from pydantic import ValidationError
 
 from apps.api.config import settings
+from apps.api.observability import log_e2e_event
 from apps.api.schemas import (
     AnovaResult,
     BacktestResponse,
@@ -312,10 +313,21 @@ async def stream_graph_events(question: str) -> AsyncIterator[dict[str, Any]]:
 
 async def stream_research_response(question: str) -> AsyncIterator[str]:
     """Stream research progress as newline-delimited JSON for Streamlit."""
+    start = perf_counter()
     yield _to_ndjson({"type": "start", "question": question})
 
     if not settings.OPENAI_API_KEY:
         fallback = build_fallback_research(question)
+        log_e2e_event(
+            "/research/stream",
+            status=fallback.status,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=fallback.timed_out,
+            sources_count=len(fallback.sources),
+            risk_tags_count=len(fallback.risk_tags),
+            risk_signals_count=len(fallback.risk_signals),
+            report_chars=len(fallback.report),
+        )
         yield _to_ndjson(
             {
                 "type": "fallback",
@@ -336,6 +348,17 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
                 yield _to_ndjson(compact)
     except Exception as exc:
         fallback = build_fallback_research(question)
+        log_e2e_event(
+            "/research/stream",
+            status=fallback.status,
+            elapsed_ms=_elapsed_ms(start),
+            timed_out=fallback.timed_out,
+            sources_count=len(fallback.sources),
+            risk_tags_count=len(fallback.risk_tags),
+            risk_signals_count=len(fallback.risk_signals),
+            report_chars=len(fallback.report),
+            error=exc.__class__.__name__,
+        )
         yield _to_ndjson(
             {
                 "type": "fallback",
@@ -349,6 +372,16 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         return
 
     response = _research_response_from_state(question, final_state or {})
+    log_e2e_event(
+        "/research/stream",
+        status=response.status,
+        elapsed_ms=_elapsed_ms(start),
+        timed_out=response.timed_out,
+        sources_count=len(response.sources),
+        risk_tags_count=len(response.risk_tags),
+        risk_signals_count=len(response.risk_signals),
+        report_chars=len(response.report),
+    )
     yield _to_ndjson(
         {
             "type": "complete",
