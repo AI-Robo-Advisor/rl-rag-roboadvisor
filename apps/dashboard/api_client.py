@@ -58,8 +58,8 @@ def explain_reasoning_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
                     "피처": feature,
                     "날짜": str(event.get("event_date", "")),
                     "태그": str(event.get("tag", "")),
-                    "강도": event.get("severity", 0.0),
-                    "감쇠점수": event.get("decayed_score", 0.0),
+                    "강도": float(event.get("severity") or 0.0),
+                    "감쇠점수": float(event.get("decayed_score") or 0.0),
                     "근거": str(event.get("reasoning", "")),
                     "출처": str(event.get("source", "")),
                 }
