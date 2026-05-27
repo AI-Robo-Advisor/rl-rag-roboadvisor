@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 RiskProfile = Literal["conservative", "balanced", "aggressive"]
 EndpointStatus = Literal["ready", "fallback", "unavailable"]
 BacktestWindow = Literal["w1", "w2", "w3", "final"]
+RiskTag = Literal["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 
 
 class ApiStatus(BaseModel):
@@ -25,6 +26,13 @@ class HealthResponse(BaseModel):
     modules: dict[str, EndpointStatus]
 
 
+class RiskSignal(BaseModel):
+    """Quantized risk signal used for RL observation inputs."""
+
+    tag: RiskTag
+    severity: float = Field(ge=0.0, le=1.0)
+
+
 class OptimizeRequest(BaseModel):
     """Portfolio optimization request."""
 
@@ -32,6 +40,7 @@ class OptimizeRequest(BaseModel):
     risk_profile: RiskProfile = "balanced"
     risk_aversion: float | None = Field(default=None, gt=0)
     risk_tags: list[str] | None = None
+    risk_signals: list[RiskSignal] | None = None
 
 
 class ReturnSeries(BaseModel):
@@ -119,6 +128,7 @@ class ResearchResponse(BaseModel):
     sources: list[str]
     reasoning_trace: str
     risk_tags: list[str]
+    risk_signals: list[RiskSignal] = Field(default_factory=list)
 
 
 class TukeyRow(BaseModel):

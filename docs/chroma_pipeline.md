@@ -178,6 +178,24 @@ docker compose exec api PYTHONPATH=. python -m src.agent.news_collector
 
 ---
 
+## 4-4. 평가 풀과 운영 풀의 분리
+
+| 풀 | 구성 | 사용처 | 측정 시점 변동성 |
+|----|------|--------|----------------|
+| **평가 풀** | 과거 데이터 1,226건 (FRED + ECOS + manual_seed, GDELT 제외) | `scripts/rag_eval.py` — RAG 품질 평가 | 없음(재현 가능) |
+| **운영 풀** | 평가 풀 + 실시간 Google RSS(수집 시점에 따라 변동) | `/research` API — 실제 사용자 응답 | 있음(RSS 변동) |
+
+RAG 평가의 재현성을 보장하기 위해 평가는 **평가 풀(1,226건)** 기준으로만 수행한다. RAG 평가 수치를 인용할 때는 항상 "1,226건 단일 풀 기준"임을 명시한다. 실시간 RSS는 운영 풀에만 적재되며, 평가에는 포함하지 않는다. 운영 풀에서의 hit·top_dist는 RSS 변동으로 평가 수치와 다를 수 있다.
+
+평가 풀 빌드(권장):
+
+```bash
+PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear  # 1,226건 적재
+PYTHONPATH=. python scripts/rag_eval.py --json > data/results/rag_eval_snapshot_$(date +%Y%m%d).json
+```
+
+---
+
 ## 5. 알려진 한계 및 향후 개선
 
 | 항목 | 현재 상태 | 개선 방향 |

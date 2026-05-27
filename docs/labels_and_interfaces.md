@@ -130,10 +130,10 @@ vec = np.array(risk_df.loc[pd.Timestamp("2022-06-15"), ["risk_macro","risk_equit
 이번 통합 단계의 리스크 전달 흐름은 서버 저장소 없이 Streamlit 세션을 사용한다.
 
 ```text
-/research/stream complete.risk_tags
-  → st.session_state["risk_tags"]
-  → /optimize request.risk_tags
-  → get_risk_vector(risk_tags)
+/research/stream complete.(risk_tags, risk_signals)
+  → st.session_state["risk_tags"], st.session_state["risk_signals"]
+  → /optimize request.(risk_tags, risk_signals)
+  → apply_decay(severity, days_elapsed=0, tag)  # risk_signals 우선
   → PortfolioEnv(risk_vector=...)
 ```
 
@@ -150,6 +150,9 @@ from src.agent.risk_tags import get_risk_vector
 vec = get_risk_vector("증시 급락 어닝쇼크 VIX 급등")
 # array([0., 1., 0.], dtype=float32)  ← equity_market_risk 감지
 ```
+
+`risk_signals`가 누락된 호출(직접 API 호출, 세션 손실 등)에서는 `PortfolioEnv`가
+`risk_vectors_daily.parquet`를 자동 로드해 최신 거래일 float 값을 사용한다.
 
 장점은 사용자별 서버 상태 저장소, DB, 만료 정책 없이 단순하게 구현할 수 있고, `/optimize` 요청이 self-contained라 API 테스트가 쉽다는 점이다. 한계는 브라우저 새로고침, Streamlit 세션 만료, Streamlit 재시작 시 `risk_tags`가 사라지고, 서버에서 “이 최적화가 어떤 리서치 결과에 근거했는지” 이력을 추적할 수 없다는 점이다. 서버 이력 추적이 필요하면 후속 단계에서 `risk_context_id` 저장소를 추가한다.
 
