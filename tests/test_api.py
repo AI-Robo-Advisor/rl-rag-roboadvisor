@@ -347,6 +347,50 @@ def test_build_reasoning_events_returns_reasoning_event_schema(monkeypatch) -> N
     } <= set(row)
 
 
+def test_load_unified_events_reloads_when_parquet_mtime_changes(monkeypatch, tmp_path) -> None:
+    """Unified events should be reloaded when the parquet asset changes."""
+    events_path = tmp_path / "unified_events.parquet"
+    first = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "first event",
+            }
+        ]
+    )
+    second = first.assign(reasoning=["second event"])
+    first.to_parquet(events_path)
+
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    loaded_first = api_services._load_unified_events()
+
+    time.sleep(0.01)
+    second.to_parquet(events_path)
+    loaded_second = api_services._load_unified_events()
+
+    assert loaded_first.iloc[0]["reasoning"] == "first event"
+    assert loaded_second.iloc[0]["reasoning"] == "second event"
+
+
+def test_load_unified_events_returns_empty_dataframe_on_read_failure(monkeypatch, tmp_path) -> None:
+    """Unified events loader should not break /explain when parquet is unreadable."""
+    events_path = tmp_path / "unified_events.parquet"
+    events_path.write_text("not parquet", encoding="utf-8")
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    api_services._load_unified_events.cache_clear()
+
+    def raise_read_error(path):
+        raise RuntimeError(f"cannot read {path}")
+
+    monkeypatch.setattr(pd, "read_parquet", raise_read_error)
+
+    loaded = api_services._load_unified_events()
+
+    assert loaded.empty
+
+
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
     """POST /research should expose the RAG response contract for Streamlit."""
     response = client.post(

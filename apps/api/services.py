@@ -107,10 +107,40 @@ def _load_features() -> pd.DataFrame:
     return pd.read_parquet(FEATURES_PATH)
 
 
-@lru_cache(maxsize=1)
+_UNIFIED_EVENTS_CACHE: tuple[Path, int, pd.DataFrame] | None = None
+
+
 def _load_unified_events() -> pd.DataFrame:
-    """Load unified reasoning events once per API process."""
-    return pd.read_parquet(UNIFIED_EVENTS_PATH)
+    """Load unified reasoning events, reloading when the parquet asset changes."""
+    global _UNIFIED_EVENTS_CACHE
+    try:
+        mtime_ns = UNIFIED_EVENTS_PATH.stat().st_mtime_ns
+    except OSError:
+        return pd.DataFrame()
+
+    if (
+        _UNIFIED_EVENTS_CACHE is not None
+        and _UNIFIED_EVENTS_CACHE[0] == UNIFIED_EVENTS_PATH
+        and _UNIFIED_EVENTS_CACHE[1] == mtime_ns
+    ):
+        return _UNIFIED_EVENTS_CACHE[2]
+
+    try:
+        events = pd.read_parquet(UNIFIED_EVENTS_PATH)
+    except Exception:
+        events = pd.DataFrame()
+
+    _UNIFIED_EVENTS_CACHE = (UNIFIED_EVENTS_PATH, mtime_ns, events)
+    return events
+
+
+def _clear_unified_events_cache() -> None:
+    """Clear unified event cache for tests and manual invalidation hooks."""
+    global _UNIFIED_EVENTS_CACHE
+    _UNIFIED_EVENTS_CACHE = None
+
+
+_load_unified_events.cache_clear = _clear_unified_events_cache  # type: ignore[attr-defined]
 
 
 def build_fallback_portfolio(
