@@ -73,8 +73,10 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
     def fake_predict_ppo_weights(
         tickers: list[str],
         risk_tags: list[str] | None = None,
+        risk_signals: list | None = None,
     ) -> dict[str, float]:
         assert risk_tags == ["equity_market_risk"]
+        assert risk_signals is None
         return {tickers[0]: 0.7, tickers[1]: 0.3}
 
     monkeypatch.setattr(
@@ -93,8 +95,8 @@ def test_optimize_uses_ready_ppo_weights_when_available(monkeypatch) -> None:
     assert "PPO" in payload["message"]
 
 
-def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
-    """PPO inference should convert risk_tags into PortfolioEnv risk_vector."""
+def test_predict_ppo_weights_sets_risk_vector_from_signals(monkeypatch) -> None:
+    """PPO inference should pass request risk_vector during env construction."""
     captured: dict[str, object] = {}
     dates = pd.date_range("2024-01-01", periods=40, freq="B")
     returns = pd.DataFrame({"SPY": [0.001] * 40, "QQQ": [0.002] * 40}, index=dates)
@@ -116,7 +118,7 @@ def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
 
     class FakeEnv:
         def __init__(self, **kwargs):
-            captured["risk_vector"] = kwargs["risk_vector"]
+            captured["init_kwargs"] = kwargs
             self.features_df = features
             self.asset_names = ["SPY", "QQQ"]
 
@@ -129,6 +131,9 @@ def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
         def _normalize_action(self, action):
             return action
 
+        def set_risk_vector(self, risk_vector):
+            captured["set_called"] = True
+
     import src.rl.env as rl_env
 
     monkeypatch.setattr(api_services, "_load_returns", lambda: returns)
@@ -136,10 +141,89 @@ def test_predict_ppo_weights_passes_risk_vector_to_env(monkeypatch) -> None:
     monkeypatch.setattr(api_services, "_load_ppo_model", lambda: FakeModel())
     monkeypatch.setattr(rl_env, "PortfolioEnv", FakeEnv)
 
-    weights = api_services._predict_ppo_weights(["SPY", "QQQ"], ["equity_market_risk", "geopolitical_fx_risk"])
+    weights = api_services._predict_ppo_weights(
+        ["SPY", "QQQ"],
+        ["equity_market_risk", "geopolitical_fx_risk"],
+        [
+            {"tag": "equity_market_risk", "severity": 0.66},
+            {"tag": "geopolitical_fx_risk", "severity": 1.0},
+        ],
+    )
 
     assert weights == {"SPY": 0.8, "QQQ": 0.2}
-    assert captured["risk_vector"].tolist() == [0.0, 1.0, 1.0]
+    risk_vector = captured["init_kwargs"]["risk_vector"]
+    assert risk_vector[0] == 0.0
+    assert math.isclose(float(risk_vector[1]), 0.66, rel_tol=0, abs_tol=1e-6)
+    assert risk_vector[2] == 1.0
+    assert "set_called" not in captured
+
+
+def test_predict_ppo_weights_uses_env_default_when_no_signals(monkeypatch) -> None:
+    """PPO inference should rely on env defaults when no signals are supplied."""
+    captured: dict[str, object] = {}
+    dates = pd.date_range("2024-01-01", periods=40, freq="B")
+    returns = pd.DataFrame({"SPY": [0.001] * 40, "QQQ": [0.002] * 40}, index=dates)
+    features = pd.DataFrame(
+        {
+            "SPY_return": [0.001] * 40,
+            "QQQ_return": [0.002] * 40,
+            "SPY_RSI": [50.0] * 40,
+            "QQQ_RSI": [55.0] * 40,
+            "SPY_MACD_signal": [0.0] * 40,
+            "QQQ_MACD_signal": [0.0] * 40,
+        },
+        index=dates,
+    )
+
+    class FakeModel:
+        def predict(self, obs, deterministic: bool = True):
+            return [0.8, 0.2], None
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            captured["init_kwargs"] = kwargs
+            self.features_df = features
+            self.asset_names = ["SPY", "QQQ"]
+
+        def reset(self):
+            return [0.0], {}
+
+        def _get_observation(self):
+            return [0.0]
+
+        def _normalize_action(self, action):
+            return action
+
+        def set_risk_vector(self, risk_vector):
+            captured["set_called"] = True
+
+    import src.rl.env as rl_env
+
+    monkeypatch.setattr(api_services, "_load_returns", lambda: returns)
+    monkeypatch.setattr(api_services, "_load_features", lambda: features)
+    monkeypatch.setattr(api_services, "_load_ppo_model", lambda: FakeModel())
+    monkeypatch.setattr(rl_env, "PortfolioEnv", FakeEnv)
+
+    weights = api_services._predict_ppo_weights(["SPY", "QQQ"], [], [])
+    assert weights == {"SPY": 0.8, "QQQ": 0.2}
+    assert "risk_vector" not in captured["init_kwargs"]
+    assert "set_called" not in captured
+
+
+def test_normalize_risk_signals_rejects_invalid_rows() -> None:
+    """Risk signal normalization should skip malformed, unknown, or out-of-range rows."""
+    signals = api_services._normalize_risk_signals(
+        [
+            {"tag": "equity_market_risk", "severity": 0.66},
+            {"tag": "unknown", "severity": 1.0},
+            {"tag": "macro_rate_risk", "severity": 1.0001},
+            {"tag": "geopolitical_fx_risk", "severity": "bad"},
+        ]
+    )
+
+    assert [signal.model_dump() for signal in signals] == [
+        {"tag": "equity_market_risk", "severity": 0.66}
+    ]
 
 
 def test_explain_returns_feature_contributions() -> None:
@@ -152,10 +236,15 @@ def test_explain_returns_feature_contributions() -> None:
     assert payload["status"] in {"ready", "fallback"}
     assert payload["date"] == "2024-12-31"
     assert len(payload["feature_contributions"]) == 5
-    assert {"feature", "value", "contribution"} <= set(payload["feature_contributions"][0])
+    assert {"feature", "value", "contribution", "reasoning_context"} <= set(
+        payload["feature_contributions"][0]
+    )
     assert payload["target_date"] <= "2024-12-31"
     assert len(payload["feature_names"]) == 5
     assert len(payload["shap_values"]) == 5
+    assert "reasoning_context" in payload
+    assert isinstance(payload["reasoning_context"], list)
+    assert isinstance(payload["feature_contributions"][0]["reasoning_context"], list)
     assert payload["feature_names"] == [
         item["feature"] for item in payload["feature_contributions"]
     ]
@@ -239,6 +328,86 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     api_services._load_shap_artifact.cache_clear()
 
 
+def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) -> None:
+    """Risk SHAP features should receive per-feature reasoning_context only."""
+
+    def fake_compute_ready_shap(date: str | None, top_k: int) -> dict:
+        return {
+            "status": "ready",
+            "date": date,
+            "target_date": "2024-12-30",
+            "base_value": 0.1,
+            "prediction": 0.17,
+            "feature_contributions": [
+                {"feature": "risk_equity_market_risk", "value": 1.0, "contribution": 0.05},
+                {"feature": "SPY_RSI", "value": 60.0, "contribution": 0.02},
+            ],
+            "feature_names": ["risk_equity_market_risk", "SPY_RSI"],
+            "shap_values": [0.05, 0.02],
+            "reasoning_context": [
+                {
+                    "date": "2024-12-29",
+                    "source": "fred",
+                    "primary_tag": "equity_market_risk",
+                    "reasoning": "VIX spike to 32.0",
+                }
+            ],
+            "message": f"PPO SHAP 분석 완료 top_k={top_k}",
+        }
+
+    monkeypatch.setattr(
+        api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
+    )
+
+    response = client.post("/explain", json={"date": "2024-12-31", "top_k": 2})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["status"] == "ready"
+    assert len(payload["reasoning_context"]) == 1
+    assert payload["reasoning_context"][0]["tag"] == "equity_market_risk"
+    assert payload["reasoning_context"][0]["source"] == "fred"
+
+    risk_feature = payload["feature_contributions"][0]
+    normal_feature = payload["feature_contributions"][1]
+    assert risk_feature["feature"] == "risk_equity_market_risk"
+    assert len(risk_feature["reasoning_context"]) == 1
+    assert risk_feature["reasoning_context"][0]["tag"] == "equity_market_risk"
+    assert normal_feature["feature"] == "SPY_RSI"
+    assert normal_feature["reasoning_context"] == []
+
+
+def test_build_reasoning_events_returns_reasoning_event_schema() -> None:
+    """Reasoning mapper should normalize SHAP raw events into API schema."""
+    events = api_services._build_reasoning_events(
+        "2024-12-31",
+        raw_context=[
+            {
+                "date": "2024-12-30",
+                "source": "manual_seed",
+                "primary_tag": "macro_rate_risk",
+                "reasoning": "Fed rate change +0.25%p",
+            }
+        ],
+    )
+
+    assert len(events) == 1
+    event = events[0].model_dump()
+    assert {
+        "event_date",
+        "days_elapsed",
+        "tag",
+        "severity",
+        "decayed_score",
+        "reasoning",
+        "source",
+    } <= set(event)
+    assert event["event_date"] == "2024-12-30"
+    assert event["days_elapsed"] == 1
+    assert event["tag"] == "macro_rate_risk"
+    assert event["source"] == "manual_seed"
+
+
 def test_research_returns_report_sources_trace_and_risk_tags() -> None:
     """POST /research should expose the RAG response contract for Streamlit."""
     response = client.post(
@@ -255,6 +424,7 @@ def test_research_returns_report_sources_trace_and_risk_tags() -> None:
     assert payload["reasoning_trace"]
     assert isinstance(payload["reasoning_trace"], str)
     assert payload["risk_tags"]
+    assert isinstance(payload["risk_signals"], list)
     assert payload["question"].startswith("금리 인하")
 
 
@@ -274,6 +444,7 @@ def test_research_falls_back_when_graph_raises(monkeypatch) -> None:
     assert payload["status"] in {"ready", "fallback"}
     assert payload["report"]
     assert payload["risk_tags"] == ["macro_rate_risk"]
+    assert payload["risk_signals"] == [{"tag": "macro_rate_risk", "severity": 1.0}]
 
 
 def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> None:
@@ -287,6 +458,7 @@ def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> N
             "sources": ["https://example.com/langgraph"],
             "reasoning_trace": "[THINK][analyst] 완료",
             "rl_risk_tags": ["equity_market_risk"],
+            "risk_signals": [{"tag": "equity_market_risk", "severity": 0.66}],
         }
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
@@ -301,6 +473,7 @@ def test_research_runs_langgraph_without_fast_or_seed_shortcut(monkeypatch) -> N
     assert payload["report"] == "LangGraph 분석 완료"
     assert payload["sources"] == ["https://example.com/langgraph"]
     assert payload["risk_tags"] == ["equity_market_risk"]
+    assert payload["risk_signals"] == [{"tag": "equity_market_risk", "severity": 0.66}]
     assert calls == ["SPY와 TLT 배분 리스크는?"]
 
 
@@ -332,7 +505,13 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {
             "event": "on_chain_end",
             "name": "analyst",
-            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+            "data": {
+                "output": {
+                    "response": "분석 완료",
+                    "risk_tags": ["equity_market_risk"],
+                    "risk_signals": [{"tag": "equity_market_risk", "severity": 0.66}],
+                }
+            },
         }
 
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
@@ -358,6 +537,7 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
     assert "equity_market_risk" in lines[-1]
+    assert '"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]' in lines[-1]
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:
