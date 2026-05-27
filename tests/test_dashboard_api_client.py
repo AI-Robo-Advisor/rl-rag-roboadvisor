@@ -8,6 +8,8 @@ import requests
 
 from apps.dashboard.api_client import (
     build_optimize_payload,
+    calculate_period_return_metrics,
+    explain_reasoning_rows,
     extract_risk_signals_from_research_event,
     extract_risk_tags_from_research_event,
     format_research_log_event,
@@ -60,6 +62,60 @@ def test_get_json_returns_payload_on_success(monkeypatch) -> None:
     result = get_json("http://localhost:8000", "/health", timeout=3)
 
     assert result == {"status": "ok"}
+
+
+def test_api_helpers_strip_trailing_slash_from_base_url(monkeypatch) -> None:
+    """HTTP helpers should normalize trailing slashes in the base URL."""
+    captured: list[str] = []
+
+    def fake_get(url: str, **kwargs: Any) -> _DummyResponse:
+        captured.append(url)
+        return _DummyResponse({"status": "ok"})
+
+    class _DummyStream:
+        def __enter__(self) -> "_DummyStream":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_lines(self) -> list[bytes]:
+            return [b'{"type":"complete"}']
+
+    def fake_post(url: str, **kwargs: Any) -> _DummyResponse | _DummyStream:
+        captured.append(url)
+        if kwargs.get("stream"):
+            return _DummyStream()
+        return _DummyResponse({"status": "ok"})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    assert get_json("http://localhost:8000/", "/health", timeout=3) == {"status": "ok"}
+    assert post_json(
+        "http://localhost:8000/",
+        "/optimize",
+        {"risk_aversion": 1.5},
+        timeout=3,
+    ) == {"status": "ok"}
+
+    list(
+        stream_ndjson(
+            "http://localhost:8000/",
+            "/research/stream",
+            {"question": "q"},
+            formatter=lambda event: "",
+        )
+    )
+
+    assert captured == [
+        "http://localhost:8000/health",
+        "http://localhost:8000/optimize",
+        "http://localhost:8000/research/stream",
+    ]
 
 
 def test_post_json_warns_and_logs_when_falling_back(monkeypatch) -> None:
@@ -166,6 +222,73 @@ def test_build_optimize_payload_includes_session_risk_tags() -> None:
         "risk_tags": ["equity_market_risk", "geopolitical_fx_risk"],
         "risk_signals": [],
     }
+
+
+def test_calculate_period_return_metrics_rebases_cumulative_series() -> None:
+    """Dashboard period metrics should compare returns within the selected slice."""
+    cumulative_return, excess_return = calculate_period_return_metrics(
+        [2.0, 3.0],
+        [5.0, 6.0],
+    )
+
+    assert cumulative_return == 0.5
+    assert round(excess_return, 10) == 0.3
+
+
+def test_explain_reasoning_rows_includes_global_and_feature_context() -> None:
+    """Dashboard should render both response-level and per-feature SHAP reasoning."""
+    rows = explain_reasoning_rows(
+        {
+            "reasoning_context": [
+                {
+                    "event_date": "2024-12-30",
+                    "tag": "equity_market_risk",
+                    "severity": 0.66,
+                    "decayed_score": 0.5,
+                    "reasoning": "시장 급락",
+                    "source": "gdelt",
+                }
+            ],
+            "feature_contributions": [
+                {
+                    "feature": "risk_equity_market_risk",
+                    "reasoning_context": [
+                        {
+                            "event_date": "2024-12-30",
+                            "tag": "equity_market_risk",
+                            "severity": 0.66,
+                            "decayed_score": 0.5,
+                            "reasoning": "시장 급락",
+                            "source": "gdelt",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert rows == [
+        {
+            "구분": "전체",
+            "피처": "",
+            "날짜": "2024-12-30",
+            "태그": "equity_market_risk",
+            "강도": 0.66,
+            "감쇠점수": 0.5,
+            "근거": "시장 급락",
+            "출처": "gdelt",
+        },
+        {
+            "구분": "피처",
+            "피처": "risk_equity_market_risk",
+            "날짜": "2024-12-30",
+            "태그": "equity_market_risk",
+            "강도": 0.66,
+            "감쇠점수": 0.5,
+            "근거": "시장 급락",
+            "출처": "gdelt",
+        },
+    ]
 
 
 def test_extract_risk_signals_from_research_event_filters_schema() -> None:
