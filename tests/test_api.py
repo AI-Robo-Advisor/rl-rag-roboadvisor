@@ -255,8 +255,25 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     api_services._load_shap_artifact.cache_clear()
 
 
-def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) -> None:
+def test_explain_attaches_reasoning_context_for_risk_features_only(
+    monkeypatch,
+    tmp_path,
+) -> None:
     """POST /explain should attach per-feature reasoning only to risk_* features."""
+    events_path = tmp_path / "unified_events.parquet"
+    pd.DataFrame(
+        [
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "테스트 reasoning",
+                "equity_market_risk": 0.66,
+                "macro_rate_risk": 0.0,
+                "geopolitical_fx_risk": 0.0,
+            }
+        ]
+    ).to_parquet(events_path)
 
     def fake_compute_ready_shap(date: str | None, top_k: int) -> dict:
         return {
@@ -282,38 +299,23 @@ def test_explain_attaches_reasoning_context_for_risk_features_only(monkeypatch) 
             "message": f"PPO SHAP 분석 완료 top_k={top_k}",
         }
 
-    def fake_build_reasoning_events(
-        target_date: str,
-        *,
-        tag_filter: str | None = None,
-        window_days: int = 3,
-    ) -> list:
-        base = {
-            "event_date": "2024-12-29",
-            "days_elapsed": 1,
-            "tag": tag_filter or "equity_market_risk",
-            "severity": 0.66,
-            "decayed_score": 0.5982,
-            "reasoning": "테스트 reasoning",
-            "source": "gdelt",
-        }
-        if tag_filter is None:
-            return [base]
-        if tag_filter == "equity_market_risk":
-            return [base]
-        return []
-
+    monkeypatch.setattr(api_services, "UNIFIED_EVENTS_PATH", events_path)
+    api_services._load_unified_events.cache_clear()
     monkeypatch.setattr(api_services, "_shap_from_artifact", lambda date, top_k: None)
     monkeypatch.setattr(
         api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
     )
-    monkeypatch.setattr(api_services, "_build_reasoning_events", fake_build_reasoning_events)
 
     response = client.post("/explain", json={"date": "2024-12-31", "top_k": 2})
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["reasoning_context"]) == 1
+    assert payload["reasoning_context"][0]["reasoning"] == "테스트 reasoning"
     assert len(payload["feature_contributions"][0]["reasoning_context"]) == 1
+    assert (
+        payload["feature_contributions"][0]["reasoning_context"][0]["tag"]
+        == "equity_market_risk"
+    )
     assert payload["feature_contributions"][1]["reasoning_context"] == []
 
 
