@@ -137,7 +137,11 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
   "tickers": ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "VNQ", "069500", "114260"],
   "risk_profile": "balanced",
   "risk_aversion": 1.0,
-  "risk_tags": ["equity_market_risk", "macro_rate_risk"]
+  "risk_tags": ["equity_market_risk", "macro_rate_risk"],
+  "risk_signals": [
+    {"tag": "equity_market_risk", "severity": 0.66},
+    {"tag": "macro_rate_risk", "severity": 1.0}
+  ]
 }
 ```
 
@@ -146,9 +150,12 @@ PPO 강화학습 기반 포트폴리오 최적 비중 계산.
 | `tickers` | `list[str]` | 아니오 | 10개 전체 자산 | 최적화할 자산 티커 목록 (1개 이상) |
 | `risk_profile` | `"conservative" \| "balanced" \| "aggressive"` | 아니오 | `"balanced"` | 위험 성향 프리셋 |
 | `risk_aversion` | `float` (> 0) | 아니오 | `null` | 수치형 위험 회피 계수. 설정 시 `risk_profile` 보다 우선 |
-| `risk_tags` | `list[str] \| null` | 아니오 | `null` | `/research/stream` 완료 이벤트에서 받은 RL 연동 리스크 태그. PPO ready 경로에서 `risk_vector`로 변환 |
+| `risk_tags` | `list[str] \| null` | 아니오 | `null` | (호환용) RL 연동 태그. `risk_signals`가 없을 때 severity=1.0으로 승격 |
+| `risk_signals` | `list[RiskSignal] \| null` | 아니오 | `null` | 정량 리스크 신호. PPO ready 경로에서 `apply_decay(severity, 0, tag)` 후 `risk_vector`로 변환. `severity` 범위 밖 값은 거부 |
 
-> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_tags": ["equity_market_risk", "macro_rate_risk"]}`
+> **대시보드 호출 예시**: `POST /optimize` `{"risk_aversion": 1.5, "risk_signals": [{"tag":"equity_market_risk","severity":0.66}]}`
+
+`risk_signals`와 `risk_tags`가 모두 비어 있으면 API는 요청별 고정 risk_vector를 주입하지 않고 `PortfolioEnv` 기본 동작을 사용한다. 이 경우 `risk_vectors_daily.parquet`가 있으면 최신 거래일 기준 날짜별 리스크 벡터가 자동 로드된다.
 
 #### 응답 `200 OK`
 
@@ -224,12 +231,23 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
   "base_value": 0.05,
   "prediction": 0.063,
   "feature_contributions": [
-    {"feature": "SPY_return", "value": 0.018, "contribution": 0.031},
-    {"feature": "QQQ_RSI",   "value": 61.2,  "contribution": 0.019},
+    {"feature": "SPY_return", "value": 0.018, "contribution": 0.031, "reasoning_context": []},
+    {"feature": "QQQ_RSI",   "value": 61.2,  "contribution": 0.019, "reasoning_context": []},
     "..."
   ],
   "feature_names": ["SPY_return", "QQQ_RSI", "..."],
   "shap_values":   [0.031, 0.019, "..."],
+  "reasoning_context": [
+    {
+      "event_date": "2024-06-13",
+      "days_elapsed": 1,
+      "tag": "equity_market_risk",
+      "severity": 0.66,
+      "decayed_score": 0.5972,
+      "reasoning": "VIX spike to 28.1",
+      "source": "fred"
+    }
+  ],
   "message": "SHAP 모듈 연결 전 feature contribution fallback입니다."
 }
 ```
@@ -244,7 +262,29 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 | `feature_contributions` | `list[FeatureContribution]` | 피처별 기여도 (top_k 개, \|SHAP\| 내림차순) |
 | `feature_names` | `list[str]` | 피처명 배열 (feature_contributions와 순서 동일) |
 | `shap_values` | `list[float]` | SHAP 값 배열 (feature_contributions와 순서 동일) |
+| `reasoning_context` | `list[ReasoningEvent]` | SHAP 해석과 연결된 이벤트 근거 컨텍스트 |
 | `message` | `str` | 상태 설명 메시지 |
+
+`FeatureContribution` 하위 스키마는 다음 필드를 포함한다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `feature` | `str` | 피처 이름 |
+| `value` | `float` | 대상 날짜 관측값 |
+| `contribution` | `float` | SHAP 기여도 |
+| `reasoning_context` | `list[ReasoningEvent]` | `risk_*` 피처에 매핑된 이벤트 근거 (비리스크 피처는 `[]`) |
+
+`ReasoningEvent` 스키마는 다음과 같다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `event_date` | `str` (`YYYY-MM-DD`) | 근거 이벤트 날짜 |
+| `days_elapsed` | `int` | `target_date - event_date` (일) |
+| `tag` | `str` | 리스크 태그 (`macro_rate_risk` \| `equity_market_risk` \| `geopolitical_fx_risk`) |
+| `severity` | `float` | 원본 이벤트 강도 (0~1) |
+| `decayed_score` | `float` | `apply_decay(severity, days_elapsed, tag)` 결과 |
+| `reasoning` | `str` | 이벤트 근거 텍스트 |
+| `source` | `str` | 이벤트 출처 (`gdelt`/`fred`/`ecos`/`manual_seed` 등) |
 
 #### Sprint 3 통합 목표
 
@@ -287,7 +327,11 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
     "https://..."
   ],
   "reasoning_trace": "[THINK][planner] 질의 분석 시작\n[THINK][researcher] Chroma hit=5건\n...",
-  "risk_tags": ["macro_rate_risk", "equity_market_risk"]
+  "risk_tags": ["macro_rate_risk", "equity_market_risk"],
+  "risk_signals": [
+    {"tag": "macro_rate_risk", "severity": 1.0},
+    {"tag": "equity_market_risk", "severity": 0.66}
+  ]
 }
 ```
 
@@ -299,6 +343,7 @@ LangGraph RAG 에이전트를 통한 투자 리서치 리포트 생성.
 | `sources` | `list[str]` | 참고한 뉴스 URL 목록 (없으면 GitHub 레포 URL) |
 | `reasoning_trace` | `str` | LangGraph 내부 추론 과정 (`[THINK][노드명]` 접두사) |
 | `risk_tags` | `list[str]` | 감지된 리스크 태그 (`"macro_rate_risk"` \| `"equity_market_risk"` \| `"geopolitical_fx_risk"` 중 해당 항목) |
+| `risk_signals` | `list[RiskSignal]` | 감지된 정량 리스크 신호 (`tag`, `severity`) |
 
 #### LangGraph 연동 시그니처 (강유영 제공)
 
@@ -311,6 +356,7 @@ state = run_graph("삼성전자 최근 투자 리스크 분석해줘")
 #   state["sources"]          → list[str]  참고 URL
 #   state["reasoning_trace"]  → str  추론 과정
 #   state["rl_risk_tags"]     → list[str]  리스크 태그
+#   state["risk_signals"]     → list[dict] 정량 리스크 신호 ({tag, severity})
 #   state["messages"]         → list  LangGraph 메시지 (reasoning_trace fallback)
 ```
 
@@ -333,7 +379,7 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 {"type":"start","question":"삼성전자 HBM 전망은?"}
 {"type":"on_chain_start","name":"planner","text":"..."}
 {"type":"on_chain_end","name":"analyst","text":"분석 완료"}
-{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["equity_market_risk"]}
+{"type":"complete","question":"삼성전자 HBM 전망은?","report":"...","sources":["https://..."],"reasoning_trace":"[THINK]...","risk_tags":["equity_market_risk"],"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]}
 ```
 
 `complete` 이벤트 스키마는 아래 필드를 포함한다.
@@ -346,8 +392,9 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 | `sources` | `list[str]` | 참고 URL 목록 |
 | `reasoning_trace` | `str` | 추론 로그 |
 | `risk_tags` | `list[str]` | RL 연동 태그 (`macro_rate_risk`, `equity_market_risk`, `geopolitical_fx_risk`) |
+| `risk_signals` | `list[RiskSignal]` | RL 정량 리스크 신호 (`tag`, `severity`) |
 
-`risk_tags`는 API 서버에 영속 저장하지 않는다. 대시보드는 `complete.risk_tags`를 `st.session_state["risk_tags"]`에 저장하고, 다음 `POST /optimize` 요청에 명시적으로 포함해야 한다.
+`risk_tags`/`risk_signals`는 API 서버에 영속 저장하지 않는다. 대시보드는 `complete` 이벤트의 두 필드를 세션에 저장하고, 다음 `POST /optimize` 요청에 명시적으로 포함해야 한다.
 
 `OPENAI_API_KEY`가 없거나 LangGraph 실행 중 오류가 나면 연결을 오래 유지하지 않고 fallback 이벤트를 반환한다.
 
@@ -355,7 +402,7 @@ NDJSON 이벤트는 한 줄에 JSON 객체 1개를 반환한다.
 {"type":"fallback","name":"research","data":{"status":"fallback","question":"..."}}
 ```
 
-5초 ready 응답 및 TTFB 중심 성능 최적화는 이번 단계의 성공 기준이 아니다. 현재 단계는 `research → risk_tags → Streamlit session → /optimize → get_risk_vector() → PortfolioEnv` 파이프라인 연결을 우선 완료하고, 성능 목표는 후속 최적화 단계에서 재검토한다.
+5초 ready 응답 및 TTFB 중심 성능 최적화는 이번 단계의 성공 기준이 아니다. 현재 단계는 `research → (risk_tags,risk_signals) → Streamlit session → /optimize → apply_decay() → PortfolioEnv` 파이프라인 연결을 우선 완료하고, 성능 목표는 후속 최적화 단계에서 재검토한다.
 
 ---
 
@@ -572,6 +619,11 @@ class OptimizeRequest(BaseModel):
     risk_profile: RiskProfile = "balanced"
     risk_aversion: float | None = Field(default=None, gt=0)
     risk_tags: list[str] | None = None
+    risk_signals: list[RiskSignal] | None = None
+
+class RiskSignal(BaseModel):
+    tag: Literal["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
+    severity: float  # 0.0 ~ 1.0
 
 class TukeyRow(BaseModel):
     group1:    str

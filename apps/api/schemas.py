@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 RiskProfile = Literal["conservative", "balanced", "aggressive"]
 EndpointStatus = Literal["ready", "fallback", "unavailable"]
 BacktestWindow = Literal["w1", "w2", "w3", "final"]
+RiskTag = Literal["macro_rate_risk", "equity_market_risk", "geopolitical_fx_risk"]
 
 
 class ApiStatus(BaseModel):
@@ -25,6 +26,13 @@ class HealthResponse(BaseModel):
     modules: dict[str, EndpointStatus]
 
 
+class RiskSignal(BaseModel):
+    """Quantized risk signal used for RL observation inputs."""
+
+    tag: RiskTag
+    severity: float = Field(ge=0.0, le=1.0)
+
+
 class OptimizeRequest(BaseModel):
     """Portfolio optimization request."""
 
@@ -32,6 +40,7 @@ class OptimizeRequest(BaseModel):
     risk_profile: RiskProfile = "balanced"
     risk_aversion: float | None = Field(default=None, gt=0)
     risk_tags: list[str] | None = None
+    risk_signals: list[RiskSignal] | None = None
 
 
 class ReturnSeries(BaseModel):
@@ -64,12 +73,25 @@ class ExplainRequest(BaseModel):
     top_k: int = Field(default=8, ge=1, le=20)
 
 
+class ReasoningEvent(BaseModel):
+    """One event-level reasoning trace linked to SHAP output."""
+
+    event_date: str
+    days_elapsed: int
+    tag: str
+    severity: float
+    decayed_score: float
+    reasoning: str
+    source: str
+
+
 class FeatureContribution(BaseModel):
     """One feature contribution for a SHAP-like explanation."""
 
     feature: str
     value: float
     contribution: float
+    reasoning_context: list[ReasoningEvent] = Field(default_factory=list)
 
 
 class ExplainResponse(BaseModel):
@@ -85,6 +107,7 @@ class ExplainResponse(BaseModel):
     feature_contributions: list[FeatureContribution]
     feature_names: list[str]
     shap_values: list[float]
+    reasoning_context: list[ReasoningEvent] = Field(default_factory=list)
     message: str
 
 
@@ -105,6 +128,7 @@ class ResearchResponse(BaseModel):
     sources: list[str]
     reasoning_trace: str
     risk_tags: list[str]
+    risk_signals: list[RiskSignal] = Field(default_factory=list)
 
 
 class TukeyRow(BaseModel):

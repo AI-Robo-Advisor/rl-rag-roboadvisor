@@ -101,6 +101,7 @@ def run_graph(query: str) -> AgentState:
         "response": "",
         "sources": [],
         "reasoning_trace": "",
+        "risk_signals": [],
     }
     return graph.invoke(initial_state)
 
@@ -136,6 +137,7 @@ if __name__ == "__main__":
         "response": "",
         "sources": [],
         "reasoning_trace": "",
+        "risk_signals": [],
     }
 
     think_accum: List[str] = []

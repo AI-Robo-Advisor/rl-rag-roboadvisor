@@ -23,7 +23,7 @@ try:
     from apps.dashboard.api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
-        extract_risk_tags_from_research_event,
+        extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
         post_json,
@@ -36,7 +36,7 @@ except ModuleNotFoundError:
     from api_client import (
         RL_RISK_TAGS,
         build_optimize_payload,
-        extract_risk_tags_from_research_event,
+        extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
         post_json,
@@ -107,9 +107,10 @@ def _format_research_event(event: dict[str, Any]) -> str:
 
 def _remember_research_risk_tags(event: dict[str, Any]) -> None:
     """Store stream risk tags in Streamlit session state for /optimize."""
-    tags = extract_risk_tags_from_research_event(event)
+    tags, signals = extract_risk_context_from_research_event(event)
     if event.get("type") in {"complete", "fallback"}:
         st.session_state["risk_tags"] = tags
+        st.session_state["risk_signals"] = signals
         st.session_state["risk_tags_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result = research_result_from_event(event)
         if result:
@@ -429,6 +430,7 @@ def _mock_research(question: str) -> dict:
             "[THINK][analyst] 최종 리포트 생성 착수"
         ),
         "risk_tags": ["equity_market_risk"],
+        "risk_signals": [{"tag": "equity_market_risk", "severity": 1.0}],
     }
 
 
@@ -486,6 +488,7 @@ def portfolio_page() -> None:
 
     st.title("포트폴리오 현황")
     current_risk_tags = st.session_state.get("risk_tags", [])
+    current_risk_signals = st.session_state.get("risk_signals", [])
     latest_research = st.session_state.get("research_result", {})
     latest_question = latest_research.get("question")
     latest_updated_at = st.session_state.get("risk_tags_updated_at")
@@ -502,7 +505,11 @@ def portfolio_page() -> None:
 
     if st.button("최적화 실행", key="btn_optimize"):
         with st.spinner("POST /optimize 호출 중…"):
-            payload = build_optimize_payload(risk_aversion, current_risk_tags)
+            payload = build_optimize_payload(
+                risk_aversion,
+                current_risk_tags,
+                current_risk_signals,
+            )
             data = _post("/optimize", payload) or _mock_optimize(risk_aversion)
     else:
         data = _mock_optimize(risk_aversion)
