@@ -354,10 +354,15 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     all_text = " ".join(d.get("content", "") for d in documents)
     rl_risk_tags: List[str] = extract_rl_risk_tags(all_text) if all_text else []
     macro, equity, geo = score_risk_vector(all_text)
+    risk_score_by_tag = {
+        "macro_rate_risk": macro,
+        "equity_market_risk": equity,
+        "geopolitical_fx_risk": geo,
+    }
     risk_signals = [
-        {"tag": tag, "severity": float(severity)}
-        for tag, severity in zip(RL_RISK_TAGS, [macro, equity, geo])
-        if float(severity) > 0
+        {"tag": tag, "severity": float(risk_score_by_tag.get(tag, 0.0))}
+        for tag in RL_RISK_TAGS
+        if float(risk_score_by_tag.get(tag, 0.0)) > 0
     ]
 
     msg = _think_log("analyst", "최종 리포트 생성 착수")
