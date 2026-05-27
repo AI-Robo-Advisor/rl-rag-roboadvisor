@@ -38,6 +38,7 @@ from apps.api.schemas import (
     StrategyEffectStats,
     TukeyRow,
 )
+from src.agent.risk_tags import RL_RISK_TAGS, apply_decay
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
@@ -81,17 +82,11 @@ DEFAULT_TICKERS: list[str] = [
     "114260",
 ]
 
-_TAG_TO_SEVERITY_COL: dict[str, str] = {
-    "macro_rate_risk": "macro_rate_risk",
-    "equity_market_risk": "equity_market_risk",
-    "geopolitical_fx_risk": "geopolitical_fx_risk",
-}
+_TAG_TO_SEVERITY_COL: dict[str, str] = {tag: tag for tag in RL_RISK_TAGS}
 _RISK_FEATURE_TO_TAG: dict[str, str] = {
-    "risk_macro_rate_risk": "macro_rate_risk",
+    **{f"risk_{tag}": tag for tag in RL_RISK_TAGS},
     "risk_macro": "macro_rate_risk",
-    "risk_equity_market_risk": "equity_market_risk",
     "risk_equity": "equity_market_risk",
-    "risk_geopolitical_fx_risk": "geopolitical_fx_risk",
     "risk_geo": "geopolitical_fx_risk",
 }
 
@@ -111,6 +106,9 @@ def _load_returns() -> pd.DataFrame:
 def _load_features() -> pd.DataFrame:
     """Load processed features once per API process."""
     return pd.read_parquet(FEATURES_PATH)
+
+
+_UNIFIED_EVENTS_CACHE: tuple[Path, int, pd.DataFrame] | None = None
 
 
 def build_fallback_portfolio(
@@ -1234,20 +1232,43 @@ def _signals_to_vector(signals: list[RiskSignal]) -> np.ndarray:
     )
 
 
-@lru_cache(maxsize=1)
 def _load_unified_events() -> pd.DataFrame:
-    """Load unified event-level reasoning rows from parquet."""
-    if not UNIFIED_EVENTS_PATH.exists():
+    """Load unified reasoning events, reloading when the parquet asset changes."""
+    global _UNIFIED_EVENTS_CACHE
+    try:
+        mtime_ns = UNIFIED_EVENTS_PATH.stat().st_mtime_ns
+    except OSError:
         return pd.DataFrame()
+
+    if (
+        _UNIFIED_EVENTS_CACHE is not None
+        and _UNIFIED_EVENTS_CACHE[0] == UNIFIED_EVENTS_PATH
+        and _UNIFIED_EVENTS_CACHE[1] == mtime_ns
+    ):
+        return _UNIFIED_EVENTS_CACHE[2]
+
     try:
         events = pd.read_parquet(UNIFIED_EVENTS_PATH)
-    except (OSError, ValueError, ImportError):
-        return pd.DataFrame()
+    except Exception:
+        events = pd.DataFrame()
     if events.empty or "date" not in events.columns:
-        return pd.DataFrame()
-    loaded = events.copy()
-    loaded["date"] = pd.to_datetime(loaded["date"], errors="coerce")
-    return loaded.dropna(subset=["date"])
+        loaded = pd.DataFrame()
+    else:
+        loaded = events.copy()
+        loaded["date"] = pd.to_datetime(loaded["date"], errors="coerce")
+        loaded = loaded.dropna(subset=["date"])
+
+    _UNIFIED_EVENTS_CACHE = (UNIFIED_EVENTS_PATH, mtime_ns, loaded)
+    return loaded
+
+
+def _clear_unified_events_cache() -> None:
+    """Clear unified event cache for tests and manual invalidation hooks."""
+    global _UNIFIED_EVENTS_CACHE
+    _UNIFIED_EVENTS_CACHE = None
+
+
+_load_unified_events.cache_clear = _clear_unified_events_cache  # type: ignore[attr-defined]
 
 
 def _normalize_reasoning_event(
@@ -1255,8 +1276,6 @@ def _normalize_reasoning_event(
     target_date: pd.Timestamp,
 ) -> ReasoningEvent | None:
     """Convert SHAP/unified raw event payload into ReasoningEvent schema."""
-    from src.agent.risk_tags import apply_decay
-
     event_date_raw = raw_event.get("event_date") or raw_event.get("date")
     if event_date_raw is None:
         return None
@@ -1280,6 +1299,8 @@ def _normalize_reasoning_event(
 
     days_elapsed = max(int((target_date.normalize() - event_ts.normalize()).days), 0)
     reasoning = str(raw_event.get("reasoning") or "").strip()
+    if not reasoning:
+        return None
     source = str(raw_event.get("source") or "")
 
     return ReasoningEvent(
@@ -1314,8 +1335,11 @@ def _build_reasoning_events(
         events = _load_unified_events()
         if events.empty:
             return []
+        events = events.copy()
+        events["date"] = pd.to_datetime(events["date"], errors="coerce")
+        events = events.dropna(subset=["date"])
         lower = target_ts - pd.Timedelta(days=window_days)
-        upper = target_ts + pd.Timedelta(days=window_days)
+        upper = target_ts
         windowed = events[(events["date"] >= lower) & (events["date"] <= upper)].copy()
         if windowed.empty:
             return []
