@@ -275,7 +275,7 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 | `feature_contributions` | `list[FeatureContribution]` | 피처별 기여도 (top_k 개, \|SHAP\| 내림차순) |
 | `feature_names` | `list[str]` | 피처명 배열 (feature_contributions와 순서 동일) |
 | `shap_values` | `list[float]` | SHAP 값 배열 (feature_contributions와 순서 동일) |
-| `reasoning_context` | `list[ReasoningEvent]` | target_date 기준 과거 3일 이내 이벤트 reasoning trace (top-level) |
+| `reasoning_context` | `list[ReasoningEvent]` | target_date 기준 과거 3일 이내 tag 무관 전체 이벤트 요약 (대시보드 전역 설명용) |
 | `message` | `str` | 상태 설명 메시지 |
 
 `FeatureContribution`는 아래 필드를 가진다:
@@ -285,7 +285,7 @@ SHAP 기반 피처 기여도 설명. PPO 모델이 특정 날짜에 내린 결�
 | `feature` | `str` | 피처 이름 |
 | `value` | `float` | target_date 시점 피처 값 |
 | `contribution` | `float` | SHAP 기여값 |
-| `reasoning_context` | `list[ReasoningEvent]` | risk_* 피처에만 tag 필터링된 reasoning, 일반 피처는 빈 리스트 |
+| `reasoning_context` | `list[ReasoningEvent]` | risk_* 피처에만 해당 tag로 필터링된 reasoning, 일반 피처는 빈 리스트 |
 
 `ReasoningEvent`는 아래 필드를 가진다:
 
