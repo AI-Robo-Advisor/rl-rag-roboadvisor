@@ -754,6 +754,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
         if "SPY" in returns.columns
         else returns.loc[portfolio_returns.index].iloc[:, 0]
     )
+    equal_weight_returns = returns.loc[portfolio_returns.index].mean(axis=1)
     metrics = _finite_metrics(
         {
             key: value
@@ -763,6 +764,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     )
     wf_cum_array = np.exp(portfolio_returns.cumsum())
     bm_cum_array = np.exp(benchmark_returns.cumsum())
+    ew_cum_array = np.exp(equal_weight_returns.cumsum())
     drawdown_array = (wf_cum_array - np.maximum.accumulate(wf_cum_array)) / np.maximum.accumulate(
         wf_cum_array
     )
@@ -779,6 +781,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
         rewards=_finite_float_list(portfolio_returns.tail(200).cumsum()),
         wf_cum=_finite_float_list(wf_cum_array),
         bm_cum=_finite_float_list(bm_cum_array),
+        ew_cum=_finite_float_list(ew_cum_array),
         wf_spark=_finite_float_list(wf_cum_array.tail(50)),
         sharpe_spark=_rolling_sharpe_spark(portfolio_returns),
         drawdown=_finite_float_list(drawdown_array),
@@ -893,9 +896,11 @@ def _build_return_series(
         usable_weights = usable_weights / usable_weights.sum()
         portfolio_returns = returns[usable].mul(usable_weights, axis=1).sum(axis=1)
         benchmark_returns = returns["SPY"] if "SPY" in returns.columns else returns[usable[0]]
+        equal_weight_returns = returns[usable].mean(axis=1)
 
         portfolio_cum = np.exp(portfolio_returns.cumsum())
         benchmark_cum = np.exp(benchmark_returns.cumsum())
+        equal_weight_cum = np.exp(equal_weight_returns.cumsum())
         years = len(portfolio_returns) / TRADING_DAYS
         expected_return = float(portfolio_cum.iloc[-1] ** (1 / years) - 1) if years > 0 else 0.0
         expected_volatility = float(portfolio_returns.std(ddof=1) * np.sqrt(TRADING_DAYS))
@@ -904,6 +909,7 @@ def _build_return_series(
                 date=[index.strftime("%Y-%m-%d") for index in returns.index],
                 portfolio=_finite_float_list(portfolio_cum),
                 benchmark=_finite_float_list(benchmark_cum),
+                equal_weight=_finite_float_list(equal_weight_cum),
             ),
             round(expected_return, 6),
             round(expected_volatility, 6),
@@ -917,10 +923,12 @@ def _static_return_series() -> ReturnSeries:
     dates = pd.date_range("2024-01-01", periods=252, freq="B")
     portfolio = np.cumprod(np.full(len(dates), 1.00035))
     benchmark = np.cumprod(np.full(len(dates), 1.0002))
+    equal_weight = np.cumprod(np.full(len(dates), 1.00025))
     return ReturnSeries(
         date=[item.strftime("%Y-%m-%d") for item in dates],
         portfolio=_finite_float_list(portfolio),
         benchmark=_finite_float_list(benchmark),
+        equal_weight=_finite_float_list(equal_weight),
     )
 
 

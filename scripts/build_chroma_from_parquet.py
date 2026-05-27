@@ -16,8 +16,12 @@
 
 실행:
   python scripts/build_chroma_from_parquet.py
-  python scripts/build_chroma_from_parquet.py --dry-run   # 통계만 출력, 실제 upsert 안 함
-  python scripts/build_chroma_from_parquet.py --clear     # 기존 컬렉션 초기화 후 재업서트
+  python scripts/build_chroma_from_parquet.py --dry-run     # 통계만 출력, 실제 upsert 안 함
+  python scripts/build_chroma_from_parquet.py --clear       # 기존 컬렉션 초기화 후 재업서트 (평가 풀)
+  python scripts/build_chroma_from_parquet.py --clear --with-rss
+      # 운영 풀 빌드 — 과거 이벤트 적재 후 Google News RSS 수집까지 한 번에 수행.
+      # `/research`가 최신 뉴스를 반환하려면 이 옵션을 사용해야 한다. 평가 풀과 운영 풀의
+      # 차이는 docs/chroma_pipeline.md §4-4 참조.
 """
 from __future__ import annotations
 
@@ -140,7 +144,12 @@ def load_events() -> pd.DataFrame:
 # 메인
 # ─────────────────────────────────────────────
 
-def build_chroma(dry_run: bool = False, clear: bool = False) -> None:
+def build_chroma(
+    dry_run: bool = False,
+    clear: bool = False,
+    with_rss: bool = False,
+    rss_max_items: int = 20,
+) -> None:
     df = load_events()
     if df.empty:
         logger.error("처리할 이벤트 없음")
@@ -213,6 +222,19 @@ def build_chroma(dry_run: bool = False, clear: bool = False) -> None:
         total_upserted, before_count, after_count,
     )
 
+    if with_rss:
+        logger.info("--with-rss: Google News RSS 수집 시작 (max_items=%d)", rss_max_items)
+        try:
+            from src.agent.news_collector import collect_google_news_and_store
+            rss_added = collect_google_news_and_store(max_items=rss_max_items)
+            final_count = col.count()
+            logger.info(
+                "RSS 수집 완료: %d건 추가 시도, 컬렉션 %d → %d건",
+                rss_added, after_count, final_count,
+            )
+        except Exception as exc:  # 네트워크/feedparser 오류 등 — 본 빌드는 성공 처리
+            logger.warning("RSS 수집 실패 (운영 풀 미완성 가능): %s", exc)
+
     # 간단 검증
     _spot_check(col)
 
@@ -242,5 +264,14 @@ if __name__ == "__main__":
                         help="통계만 출력하고 upsert 안 함")
     parser.add_argument("--clear",   action="store_true",
                         help="기존 컬렉션 삭제 후 재업서트")
+    parser.add_argument("--with-rss", action="store_true",
+                        help="과거 이벤트 업서트 후 Google News RSS도 수집 (운영 풀)")
+    parser.add_argument("--rss-max-items", type=int, default=20,
+                        help="카테고리당 최대 RSS 건수 (기본 20)")
     args = parser.parse_args()
-    build_chroma(dry_run=args.dry_run, clear=args.clear)
+    build_chroma(
+        dry_run=args.dry_run,
+        clear=args.clear,
+        with_rss=args.with_rss,
+        rss_max_items=args.rss_max_items,
+    )

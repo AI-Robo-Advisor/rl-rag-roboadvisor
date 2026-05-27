@@ -49,6 +49,7 @@ class ReturnSeries(BaseModel):
     date: list[str]
     portfolio: list[float]
     benchmark: list[float]
+    equal_weight: list[float] = Field(default_factory=list)
 
 
 class OptimizeResponse(BaseModel):
@@ -189,6 +190,7 @@ class BacktestResponse(BaseModel):
     rewards: list[float]
     wf_cum: list[float]
     bm_cum: list[float]
+    ew_cum: list[float] = Field(default_factory=list)
     wf_spark: list[float]
     sharpe_spark: list[float]
     drawdown: list[float]
