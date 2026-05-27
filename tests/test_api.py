@@ -347,6 +347,41 @@ def test_build_reasoning_events_returns_reasoning_event_schema(monkeypatch) -> N
     } <= set(row)
 
 
+def test_build_reasoning_events_uses_past_window_and_skips_empty_reasoning(monkeypatch) -> None:
+    """Reasoning context should not include future events or empty reasoning rows."""
+    events = pd.DataFrame(
+        [
+            {
+                "date": "2024-12-28",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "past market risk",
+                "equity_market_risk": 0.66,
+            },
+            {
+                "date": "2024-12-29",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "",
+                "equity_market_risk": 0.5,
+            },
+            {
+                "date": "2024-12-31",
+                "source": "gdelt",
+                "primary_tag": "equity_market_risk",
+                "reasoning": "future market risk",
+                "equity_market_risk": 0.9,
+            },
+        ]
+    )
+    monkeypatch.setattr(api_services, "_load_unified_events", lambda: events)
+
+    records = api_services._build_reasoning_events("2024-12-30")
+
+    assert [record.reasoning for record in records] == ["past market risk"]
+    assert all(record.days_elapsed >= 0 for record in records)
+
+
 def test_load_unified_events_reloads_when_parquet_mtime_changes(monkeypatch, tmp_path) -> None:
     """Unified events should be reloaded when the parquet asset changes."""
     events_path = tmp_path / "unified_events.parquet"

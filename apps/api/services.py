@@ -36,6 +36,7 @@ from apps.api.schemas import (
     StrategyEffectStats,
     TukeyRow,
 )
+from src.agent.risk_tags import apply_decay
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
@@ -999,7 +1000,7 @@ def _build_reasoning_events(
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     lower = target_ts - pd.Timedelta(days=window_days)
-    upper = target_ts + pd.Timedelta(days=window_days)
+    upper = target_ts
     df = df[(df["date"] >= lower) & (df["date"] <= upper)]
     if df.empty:
         return []
@@ -1017,12 +1018,7 @@ def _build_reasoning_events(
         except (TypeError, ValueError):
             severity = 0.0
         days_elapsed = int((target_ts - row["date"]).days)
-        if days_elapsed < 0:
-            decayed_score = round(severity, 4)
-        else:
-            from src.agent.risk_tags import apply_decay
-
-            decayed_score = float(apply_decay(severity, days_elapsed, tag))
+        decayed_score = float(apply_decay(severity, days_elapsed, tag))
         reasoning = str(row.get("reasoning") or "").strip()
         if not reasoning:
             continue
