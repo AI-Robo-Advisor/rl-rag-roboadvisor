@@ -293,8 +293,10 @@ def _mock_optimize(risk_aversion: float = 1.0) -> dict:
     weights = rng.dirichlet(concentration)
     portfolio_daily = rng.normal(0.0005, 0.012, 252)
     benchmark_daily = rng.normal(0.0003, 0.010, 252)
+    equal_weight_daily = rng.normal(0.00035, 0.011, 252)
     portfolio_cum = np.cumprod(1 + portfolio_daily)
     benchmark_cum = np.cumprod(1 + benchmark_daily)
+    equal_weight_cum = np.cumprod(1 + equal_weight_daily)
     dates = pd.date_range("2024-01-01", periods=252, freq="B").strftime("%Y-%m-%d").tolist()
     portfolio_return = float(portfolio_cum[-1] / portfolio_cum[0] - 1.0)
     return {
@@ -311,6 +313,7 @@ def _mock_optimize(risk_aversion: float = 1.0) -> dict:
             "date": dates,
             "portfolio": portfolio_cum.tolist(),
             "benchmark": benchmark_cum.tolist(),
+            "equal_weight": equal_weight_cum.tolist(),
         },
     }
 
@@ -348,6 +351,7 @@ def _mock_backtest() -> dict:
     dates = pd.date_range("2024-01-01", periods=252, freq="B").strftime("%Y-%m-%d").tolist()
     wf = _rng.normal(0.001, 0.015, 252)
     bm = _rng.normal(0.0003, 0.010, 252)
+    ew = _rng.normal(0.0006, 0.011, 252)
     prices = np.cumprod(1 + wf)
     drawdown = ((prices - np.maximum.accumulate(prices)) / np.maximum.accumulate(prices)).tolist()
     metrics = {
@@ -369,6 +373,7 @@ def _mock_backtest() -> dict:
         "rewards": _rng.normal(0.002, 0.05, 200).cumsum().tolist(),
         "wf_cum": np.cumprod(1 + wf).tolist(),
         "bm_cum": np.cumprod(1 + bm).tolist(),
+        "ew_cum": np.cumprod(1 + ew).tolist(),
         "wf_spark": np.cumprod(1 + wf[:50]).tolist(),
         "sharpe_spark": (np.cumsum(_rng.normal(0, 0.3, 50)) + 1.27).tolist(),
         "drawdown": drawdown,
@@ -484,7 +489,7 @@ def _mock_research(question: str) -> dict:
 
 
 def _render_research_result(result: dict[str, Any] | None) -> None:
-    """Render the latest research output as report, tags, and sources."""
+    """Render the latest research output as report, sources, and tags (in that order)."""
     if not result:
         return
 
@@ -498,14 +503,6 @@ def _render_research_result(result: dict[str, Any] | None) -> None:
         st.markdown(result.get("report") or "리서치 결과가 비어 있습니다.")
 
     with st.container(border=True):
-        st.markdown("**Optimize 반영 상태**")
-        st.caption(
-            f"최근 리서치 태그: {', '.join(tags) if tags else '없음'}"
-            + (f" | 저장 시각: {updated_at}" if updated_at else "")
-        )
-        st.caption(f"RL 관측 벡터 {RL_RISK_TAGS}: {risk_vector_from_tags(tags)}")
-
-    with st.container(border=True):
         st.markdown("**출처**")
         sources = result.get("sources") or []
         if sources:
@@ -513,6 +510,14 @@ def _render_research_result(result: dict[str, Any] | None) -> None:
                 st.markdown(f"- {source}")
         else:
             st.caption("표시할 출처가 없습니다.")
+
+    with st.container(border=True):
+        st.markdown("**Optimize 반영 상태**")
+        st.caption(
+            f"최근 리서치 태그: {', '.join(tags) if tags else '없음'}"
+            + (f" | 저장 시각: {updated_at}" if updated_at else "")
+        )
+        st.caption(f"RL 관측 벡터 {RL_RISK_TAGS}: {risk_vector_from_tags(tags)}")
 
 
 # ─────────────────────────────────────────────
@@ -576,14 +581,26 @@ def portfolio_page() -> None:
     x = ret["date"][-n:] if n else ret["date"]
     port_vals = ret["portfolio"][-n:] if n else ret["portfolio"]
     bm_vals = ret["benchmark"][-n:] if n else ret["benchmark"]
+    ew_full = ret.get("equal_weight") or []
+    ew_vals = ew_full[-n:] if (n and ew_full) else ew_full
     data_status = data.get("status", "unknown")
     data_message = data.get("message", "")
     elapsed_ms = float(data.get("elapsed_ms", 0.0) or 0.0)
     data_start = x[0] if x else "-"
     data_end = x[-1] if x else "-"
+    if data_status == "mock":
+        st.error(
+            "API 연결 실패로 mock 응답을 표시합니다. 실제 PPO 결과가 아니며, "
+            "도커/로컬 API 기동 여부를 확인하세요."
+        )
     st.caption(
         f"상태: {data_status} | 메시지: {data_message} | 소요 시간: {elapsed_ms:.1f}ms | "
-        f"데이터 기간: {data_start} ~ {data_end}"
+        f"표시 구간: {data_start} ~ {data_end}"
+    )
+    st.caption(
+        ":material/info: 아래 누적 수익률은 **현재 PPO 가중치 1세트를 과거 구간에 정적으로 적용한 "
+        "시뮬레이션**입니다 (시점별 리밸런싱이 없는 buy-and-hold). "
+        "Walk-Forward 백테스트 결과는 **강화학습 성과** 탭을 참조하세요."
     )
 
     cum_ret, excess = calculate_period_return_metrics(port_vals, bm_vals)
@@ -606,26 +623,38 @@ def portfolio_page() -> None:
             )
     with col2:
         with st.container(border=True):
+            p_series: list[dict[str, Any]] = [
+                {
+                    "name": "포트폴리오 (PPO)",
+                    "type": "line",
+                    "smooth": True,
+                    "areaStyle": {"opacity": 0.15},
+                    "data": port_vals,
+                    "itemStyle": {"color": _PALETTE[0]},
+                },
+                {
+                    "name": "벤치마크 (SPY)",
+                    "type": "line",
+                    "smooth": True,
+                    "data": bm_vals,
+                    "itemStyle": {"color": _PALETTE[3]},
+                },
+            ]
+            if ew_vals:
+                p_series.append(
+                    {
+                        "name": "동일가중",
+                        "type": "line",
+                        "smooth": True,
+                        "lineStyle": {"type": "dashed"},
+                        "data": ew_vals,
+                        "itemStyle": {"color": _PALETTE[2]},
+                    }
+                )
             _echarts_line(
                 x=x,
-                series=[
-                    {
-                        "name": "포트폴리오",
-                        "type": "line",
-                        "smooth": True,
-                        "areaStyle": {"opacity": 0.15},
-                        "data": port_vals,
-                        "itemStyle": {"color": _PALETTE[0]},
-                    },
-                    {
-                        "name": "벤치마크(SPY)",
-                        "type": "line",
-                        "smooth": True,
-                        "data": bm_vals,
-                        "itemStyle": {"color": _PALETTE[3]},
-                    },
-                ],
-                title=f"누적 수익률 ({period})",
+                series=p_series,
+                title=f"정적 가중치 누적 수익률 ({period})",
                 key="p_line",
             )
 
@@ -651,8 +680,8 @@ def rl_page() -> None:
         )
         strategies: list[str] = st.multiselect(
             "비교 전략",
-            ["PPO", "MVO", "동일비중"],
-            default=["PPO"],
+            ["PPO", "벤치마크 (SPY)", "동일비중", "MVO"],
+            default=["PPO", "벤치마크 (SPY)", "동일비중"],
             help="강화학습 성과 탭에서 비교할 전략",
         )
 
@@ -665,6 +694,8 @@ def rl_page() -> None:
     dates = bt["dates"][-n:] if n else bt["dates"]
     wf_cum = bt["wf_cum"][-n:] if n else bt["wf_cum"]
     bm_cum = bt["bm_cum"][-n:] if n else bt["bm_cum"]
+    ew_cum_full = bt.get("ew_cum") or []
+    ew_cum = ew_cum_full[-n:] if n else ew_cum_full
 
     m = bt["metrics"]
     c1, c2, c3 = st.columns(3)
@@ -718,25 +749,36 @@ def rl_page() -> None:
                         "itemStyle": {"color": _PALETTE[0]},
                     }
                 )
+            if "벤치마크 (SPY)" in strategies:
+                series_list.append(
+                    {
+                        "name": "벤치마크 (SPY)",
+                        "type": "line",
+                        "smooth": True,
+                        "data": bm_cum,
+                        "itemStyle": {"color": _PALETTE[3]},
+                    }
+                )
+            if "동일비중" in strategies and ew_cum:
+                series_list.append(
+                    {
+                        "name": "동일비중",
+                        "type": "line",
+                        "smooth": True,
+                        "lineStyle": {"type": "dashed"},
+                        "data": ew_cum,
+                        "itemStyle": {"color": _PALETTE[2]},
+                    }
+                )
             if "MVO" in strategies:
                 series_list.append(
                     {
                         "name": "MVO (mock)",
                         "type": "line",
                         "smooth": True,
+                        "lineStyle": {"type": "dotted"},
                         "data": (np.array(wf_cum) * 0.92).tolist(),
-                        "itemStyle": {"color": _PALETTE[2]},
-                    }
-                )
-            if "동일비중" in strategies:
-                series_list.append(
-                    {
-                        "name": "동일비중 (mock)",
-                        "type": "line",
-                        "smooth": True,
-                        "lineStyle": {"type": "dashed"},
-                        "data": bm_cum,
-                        "itemStyle": {"color": _PALETTE[3]},
+                        "itemStyle": {"color": _PALETTE[4] if len(_PALETTE) > 4 else _PALETTE[2]},
                     }
                 )
             if not series_list:
@@ -874,18 +916,42 @@ def research_page() -> None:
         if not question.strip():
             st.error("질문을 입력하세요.")
         else:
-            with st.status("에이전트 리서치 진행 중…", expanded=True) as status:
-                st.write("LangGraph 진행 상황 수신")
-                stream_text = st.write_stream(_stream_research(question))
-                status.update(label="리서치 스트림 종료", state="complete", expanded=False)
+            # 1. 결과 위치 예약 (스트림 종료 후 위에 채워짐)
+            result_container = st.container()
 
-            with st.container(border=True):
-                st.markdown("**추론 로그**")
-                st.code(stream_text.strip() or "표시할 진행 로그가 없습니다.", language="text")
-            _render_research_result(st.session_state.get("research_result"))
+            # 2. 추론 로그 expander — default 닫힘. 사용자가 토글 열면 실시간 진행 노출
+            with st.expander("추론 로그 보기 (LangGraph reasoning trace)", expanded=False):
+                stream_placeholder = st.empty()
+                stream_placeholder.caption("LangGraph 진행 상황 수신 대기 중…")
+
+            # 3. spinner 동안 스트림 chunk를 expander 내부 placeholder에 누적 갱신
+            with st.spinner("LangGraph 리서치 진행 중…"):
+                stream_chunks: list[str] = []
+                for chunk in _stream_research(question):
+                    stream_chunks.append(str(chunk))
+                    running_text = "".join(stream_chunks).strip()
+                    stream_placeholder.code(
+                        running_text[-4000:] or "...",
+                        language="text",
+                    )
+                stream_text = "".join(stream_chunks)
+
+            st.session_state["research_stream_text"] = stream_text
+            stream_placeholder.code(
+                stream_text.strip() or "표시할 진행 로그가 없습니다.",
+                language="text",
+            )
+
+            # 4. 결과는 위에 예약된 컨테이너에 그림
+            with result_container:
+                _render_research_result(st.session_state.get("research_result"))
     else:
         st.info("위에서 질문을 입력하고 '리서치 실행' 버튼을 누르세요.")
         _render_research_result(st.session_state.get("research_result"))
+        cached_stream = st.session_state.get("research_stream_text")
+        if cached_stream:
+            with st.expander("추론 로그 보기 (LangGraph reasoning trace)", expanded=False):
+                st.code(cached_stream.strip(), language="text")
 
 
 def anova_page() -> None:

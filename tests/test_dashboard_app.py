@@ -30,7 +30,7 @@ def test_mock_optimize_matches_api_shape_and_is_stable() -> None:
     assert set(first["weights"]) == set(first["tickers"])
     assert isinstance(first["expected_return"], float)
     assert isinstance(first["expected_volatility"], float)
-    assert set(first["returns"]) == {"date", "portfolio", "benchmark"}
+    assert set(first["returns"]) == {"date", "portfolio", "benchmark", "equal_weight"}
 
 
 def test_portfolio_data_cache_survives_rerun(monkeypatch) -> None:

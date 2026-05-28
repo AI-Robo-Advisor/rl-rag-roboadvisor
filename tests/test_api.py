@@ -62,11 +62,14 @@ def test_optimize_accepts_dashboard_risk_aversion_and_returns_series() -> None:
     assert math.isclose(sum(payload["weights"].values()), 1.0, abs_tol=1e-9)
 
     returns = payload["returns"]
-    assert set(returns) == {"date", "portfolio", "benchmark"}
+    assert {"date", "portfolio", "benchmark", "equal_weight"} <= set(returns)
     assert len(returns["date"]) > 0
     assert len(returns["date"]) == len(returns["portfolio"]) == len(returns["benchmark"])
     assert all(value > 0 for value in returns["portfolio"])
     assert all(value > 0 for value in returns["benchmark"])
+    if returns["equal_weight"]:
+        assert len(returns["equal_weight"]) == len(returns["date"])
+        assert all(value > 0 for value in returns["equal_weight"])
 
 
 def test_optimize_emits_e2e_log(caplog) -> None:
