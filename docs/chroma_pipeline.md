@@ -148,17 +148,28 @@ GDELT는 ChromaDB에서 **영구 제외**. title/summary가 GKG 기계코드 나
 컨테이너 기동 후 아래 명령을 **서버에서 1회 실행**해야 RAG가 동작한다.
 
 ```bash
-# api 컨테이너 기동 후
+# api 컨테이너 기동 후 — 운영 풀 한 번에 빌드 (과거 이벤트 + RSS)
+docker compose exec api PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear --with-rss
+
+# (또는) 분리 실행
 docker compose exec api PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear
+docker compose exec api PYTHONPATH=. python -m src.agent.news_collector
 ```
+
+> ⚠️ **`--clear` 단독 실행 금지 원칙**
+> `build_chroma_from_parquet.py --clear`는 ChromaDB를 과거 이벤트(2018~2025 FRED/ECOS/manual_seed)로만 초기화한다. RSS는 별도 경로(`news_collector.py`)로 적재되므로, `--clear` 직후 `/research`를 호출하면 cosine similarity 매칭이 과거 이벤트로만 흡수되어 "최신 뉴스 대신 2020년대 옛날 뉴스"가 반환되는 현상이 발생한다.
+> 따라서 `--clear`를 실행했다면 **즉시 `python -m src.agent.news_collector`도 함께 실행**한다. 평가 풀 빌드(§4-4)는 예외 — 의도적으로 RSS 미적재 상태로 유지한다.
 
 ### 4-2. 로컬 개발 환경
 
 ```bash
-# 과거 데이터 재빌드 (unified_events 변경 시)
+# 운영 풀 빌드 (한 번에 — 권장)
+PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear --with-rss
+
+# 평가 풀 빌드 (재현성 확보 — RSS 미적재 상태로 고정)
 PYTHONPATH=. python scripts/build_chroma_from_parquet.py --clear
 
-# RAG 품질 검증
+# RAG 품질 검증 (평가 풀 기준 — RSS 적재 전에 실행)
 PYTHONPATH=. python scripts/rag_eval.py
 ```
 
