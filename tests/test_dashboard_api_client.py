@@ -10,6 +10,7 @@ from apps.dashboard.api_client import (
     build_optimize_payload,
     calculate_period_return_metrics,
     explain_reasoning_rows,
+    extract_analyst_draft_delta,
     extract_risk_signals_from_research_event,
     extract_risk_tags_from_research_event,
     format_research_log_event,
@@ -206,10 +207,29 @@ def test_research_result_from_complete_event() -> None:
 
 def test_research_log_formatter_filters_noisy_chat_chunks() -> None:
     """Dashboard log should hide raw chat token chunks and keep milestones."""
-    assert format_research_log_event({"type": "on_chat_model_stream", "text": "토큰"}) == ""
+    analyst_token = {"type": "on_chat_model_stream", "node": "analyst", "text": "토큰"}
+    assert format_research_log_event(analyst_token) == ""
+    assert extract_analyst_draft_delta(analyst_token) == "토큰"
+    assert (
+        extract_analyst_draft_delta(
+            {"type": "on_chat_model_stream", "node": "planner", "text": "무시"}
+        )
+        == ""
+    )
     assert (
         format_research_log_event({"type": "on_chain_start", "name": "planner"})
         == "질문 분석 시작\n"
+    )
+    assert (
+        format_research_log_event(
+            {
+                "type": "on_chain_end",
+                "name": "analyst",
+                "elapsed_ms": 8800,
+                "duration_ms": 6200,
+            }
+        )
+        == "리포트 작성 완료 (소요 6.20s, 누적 8.80s)\n"
     )
 
 

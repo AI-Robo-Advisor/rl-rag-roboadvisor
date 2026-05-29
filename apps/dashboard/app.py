@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import numpy as np
@@ -25,6 +25,7 @@ try:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -40,6 +41,7 @@ except ModuleNotFoundError:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -121,9 +123,12 @@ def _remember_research_risk_tags(event: dict[str, Any]) -> None:
             st.session_state["research_result"] = result
 
 
-def _stream_research(question: str):
+def _stream_research(question: str, on_draft: Callable[[str], None] | None = None):
     def formatter(event: dict[str, Any]) -> str:
         _remember_research_risk_tags(event)
+        draft_delta = extract_analyst_draft_delta(event)
+        if draft_delta and on_draft:
+            on_draft(draft_delta)
         return _format_research_event(event)
 
     return stream_ndjson(
@@ -920,6 +925,14 @@ def research_page() -> None:
             result_container = st.container()
 
             # 2. 추론 로그 expander — default 닫힘. 사용자가 토글 열면 실시간 진행 노출
+            draft_placeholder = st.empty()
+            draft_text = ""
+
+            def update_draft(delta: str) -> None:
+                nonlocal draft_text
+                draft_text += delta
+                draft_placeholder.markdown(f"**실시간 리포트 초안**\n\n{draft_text}")
+
             with st.expander("추론 로그 보기 (LangGraph reasoning trace)", expanded=False):
                 stream_placeholder = st.empty()
                 stream_placeholder.caption("LangGraph 진행 상황 수신 대기 중…")
@@ -927,7 +940,7 @@ def research_page() -> None:
             # 3. spinner 동안 스트림 chunk를 expander 내부 placeholder에 누적 갱신
             with st.spinner("LangGraph 리서치 진행 중…"):
                 stream_chunks: list[str] = []
-                for chunk in _stream_research(question):
+                for chunk in _stream_research(question, on_draft=update_draft):
                     stream_chunks.append(str(chunk))
                     running_text = "".join(stream_chunks).strip()
                     stream_placeholder.code(
@@ -943,6 +956,8 @@ def research_page() -> None:
             )
 
             # 4. 결과는 위에 예약된 컨테이너에 그림
+            if draft_text:
+                draft_placeholder.empty()
             with result_container:
                 _render_research_result(st.session_state.get("research_result"))
     else:

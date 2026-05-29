@@ -181,7 +181,29 @@ def format_research_log_event(event: dict[str, Any]) -> str:
     if len(text) > 180:
         text = f"{text[:180]}..."
     suffix = f" - {text}" if text else ""
-    return f"{label} {action}{suffix}\n"
+    timing = _format_research_event_timing(event)
+    return f"{label} {action}{suffix}{timing}\n"
+
+
+def _format_research_event_timing(event: dict[str, Any]) -> str:
+    """Return compact latency text for streamed research milestones."""
+    parts: list[str] = []
+    duration_ms = event.get("duration_ms")
+    elapsed_ms = event.get("elapsed_ms")
+    if isinstance(duration_ms, int | float):
+        parts.append(f"소요 {duration_ms / 1000:.2f}s")
+    if isinstance(elapsed_ms, int | float):
+        parts.append(f"누적 {elapsed_ms / 1000:.2f}s")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def extract_analyst_draft_delta(event: dict[str, Any]) -> str:
+    """Return analyst token-stream text for the live draft panel."""
+    if event.get("type") != "on_chat_model_stream":
+        return ""
+    if str(event.get("node") or event.get("name") or "") != "analyst":
+        return ""
+    return str(event.get("text") or "")
 
 
 def risk_vector_from_tags(risk_tags: list[str] | None) -> list[float]:
