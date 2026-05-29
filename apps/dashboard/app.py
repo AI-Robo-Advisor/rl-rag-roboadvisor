@@ -25,11 +25,14 @@ try:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        anova_attainment_cards,
         anova_summary_rows,
         extract_risk_context_from_research_event,
+        filter_post_hoc_rows,
         format_research_log_event,
         get_json,
         post_json,
+        post_hoc_group_options,
         research_result_from_event,
         risk_vector_from_signals,
         stream_ndjson,
@@ -41,11 +44,14 @@ except ModuleNotFoundError:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        anova_attainment_cards,
         anova_summary_rows,
         extract_risk_context_from_research_event,
+        filter_post_hoc_rows,
         format_research_log_event,
         get_json,
         post_json,
+        post_hoc_group_options,
         research_result_from_event,
         risk_vector_from_signals,
         stream_ndjson,
@@ -961,18 +967,20 @@ def anova_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
-        strategies: list[str] = st.multiselect(
-            "비교 전략",
-            ["PPO", "MVO", "동일비중"],
-            default=["PPO"],
-            help="사후 검정 결과 필터",
-        )
+        st.caption("사후 검정 필터는 각 검증 탭에서 실제 계산 그룹 기준으로 선택합니다.")
 
     st.title("ANOVA 검증 결과")
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
 
     anova_list: list = bt5.get("anova", _mock_backtest()["anova"])
+    cards = anova_attainment_cards(anova_list)
+    if cards:
+        card_cols = st.columns(len(cards))
+        for col, card in zip(card_cols, cards):
+            col.metric(card["label"], card["status"], border=True)
+            col.caption(card["detail"])
+
     summary_rows = anova_summary_rows(anova_list)
     if summary_rows:
         st.markdown("**계산된 ANOVA 요약**")
@@ -987,11 +995,17 @@ def anova_page() -> None:
         "strategy_comparison": "검증 2 — 전략 비교",
         "market_regime_comparison": "검증 3 — 국면 × 전략 (Two-way)",
     }
+    _EXP_PURPOSES = {
+        "reward_function_comparison": "목적: reward 함수 선택이 성과 차이를 만드는지 검증합니다.",
+        "strategy_comparison": "목적: PPO, MVO, 동일가중 전략 간 성과 차이를 검증합니다.",
+        "market_regime_comparison": "목적: 시장 국면과 전략의 효과를 분리하고 교호작용을 검증합니다.",
+    }
     tab_labels = [_EXP_LABELS.get(a.get("name", ""), a.get("name", "")) for a in anova_list]
     tabs = st.tabs(tab_labels) if tab_labels else []
 
     for tab, anova in zip(tabs, anova_list):
         with tab:
+            st.caption(_EXP_PURPOSES.get(anova.get("name", ""), "목적: 계산된 ANOVA 결과를 확인합니다."))
             a1, a2, a3 = st.columns(3)
             a1.metric("F 통계량", f"{anova.get('f_statistic', 0):.2f}", border=True)
             a2.metric("p-value", f"{anova.get('p_value', 1):.4f}", border=True)
@@ -1007,7 +1021,9 @@ def anova_page() -> None:
             if interaction:
                 sig = interaction.get("significant", False)
                 label = (
-                    "✅ 교호작용 유의 (전략 효과가 국면에 따라 다름)" if sig else "교호작용 비유의"
+                    "교호작용 유의: 전략 효과가 국면에 따라 달라짐"
+                    if sig
+                    else "교호작용 비유의: 전략 우위가 국면별로 크게 뒤집히지 않음"
                 )
                 st.info(
                     f"**교호작용** — F={interaction.get('f_statistic', 0):.2f}, "
@@ -1022,15 +1038,15 @@ def anova_page() -> None:
             with st.container(border=True):
                 st.markdown("**사후 검정 결과 (Tukey HSD)**")
                 posthoc_all = anova.get("post_hoc", [])
-                posthoc = (
-                    [
-                        row
-                        for row in posthoc_all
-                        if row["group1"] in strategies or row["group2"] in strategies
-                    ]
-                    if strategies
-                    else posthoc_all
+                group_options = post_hoc_group_options(posthoc_all)
+                selected_groups = st.multiselect(
+                    "집단 필터",
+                    group_options,
+                    default=[],
+                    key=f"posthoc_filter_{anova.get('name', '')}",
+                    help="선택하지 않으면 전체 사후 검정 결과를 표시합니다.",
                 )
+                posthoc = filter_post_hoc_rows(posthoc_all, selected_groups)
 
                 if posthoc:
                     ph = pd.DataFrame(posthoc)
