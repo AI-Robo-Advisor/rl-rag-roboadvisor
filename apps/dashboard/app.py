@@ -30,7 +30,7 @@ try:
         get_json,
         post_json,
         research_result_from_event,
-        risk_vector_from_tags,
+        risk_vector_from_signals,
         stream_ndjson,
     )
 except ModuleNotFoundError:
@@ -45,7 +45,7 @@ except ModuleNotFoundError:
         get_json,
         post_json,
         research_result_from_event,
-        risk_vector_from_tags,
+        risk_vector_from_signals,
         stream_ndjson,
     )
 
@@ -494,6 +494,7 @@ def _render_research_result(result: dict[str, Any] | None) -> None:
         return
 
     tags = result.get("risk_tags", [])
+    signals = result.get("risk_signals", [])
     updated_at = st.session_state.get("risk_tags_updated_at")
 
     with st.container(border=True):
@@ -517,7 +518,7 @@ def _render_research_result(result: dict[str, Any] | None) -> None:
             f"최근 리서치 태그: {', '.join(tags) if tags else '없음'}"
             + (f" | 저장 시각: {updated_at}" if updated_at else "")
         )
-        st.caption(f"RL 관측 벡터 {RL_RISK_TAGS}: {risk_vector_from_tags(tags)}")
+        st.caption(f"RL 관측 벡터 {RL_RISK_TAGS}: {risk_vector_from_signals(signals, tags)}")
 
 
 # ─────────────────────────────────────────────
@@ -1048,12 +1049,13 @@ def risk_page() -> None:
 
     st.title("리스크 모니터링")
     current_risk_tags = st.session_state.get("risk_tags", [])
-    risk_vector = risk_vector_from_tags(current_risk_tags)
+    current_risk_signals = st.session_state.get("risk_signals", [])
+    risk_vector = risk_vector_from_signals(current_risk_signals, current_risk_tags)
 
     st.markdown("**리서치 기반 RL 리스크 관측 벡터**")
     tag_cols = st.columns(3)
     for col, tag, value in zip(tag_cols, RL_RISK_TAGS, risk_vector):
-        col.metric(tag, "감지" if value else "미감지", border=True)
+        col.metric(tag, f"{value:.2f}", border=True)
     st.caption(f"관측 벡터 순서 {RL_RISK_TAGS}: {risk_vector}")
 
     with st.spinner("GET /backtest 호출 중…"):

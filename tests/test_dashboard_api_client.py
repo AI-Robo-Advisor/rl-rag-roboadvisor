@@ -16,6 +16,7 @@ from apps.dashboard.api_client import (
     get_json,
     post_json,
     research_result_from_event,
+    risk_vector_from_signals,
     risk_vector_from_tags,
     stream_ndjson,
 )
@@ -178,6 +179,21 @@ def test_research_complete_event_extracts_rl_risk_tags() -> None:
 
     assert extract_risk_tags_from_research_event(event) == ["equity_market_risk", "geopolitical_fx_risk", "macro_rate_risk"]
     assert risk_vector_from_tags(["equity_market_risk", "geopolitical_fx_risk"]) == [0.0, 1.0, 1.0]
+
+
+def test_risk_vector_from_signals_uses_severity_values() -> None:
+    """Dashboard display vector should preserve risk signal severity."""
+    signals = [
+        {"tag": "equity_market_risk", "severity": 0.66},
+        {"tag": "geopolitical_fx_risk", "severity": 0.33},
+    ]
+
+    assert risk_vector_from_signals(signals, ["macro_rate_risk"]) == [0.0, 0.66, 0.33]
+
+
+def test_risk_vector_from_signals_falls_back_to_tags_when_empty() -> None:
+    """Dashboard display vector should remain compatible with tag-only events."""
+    assert risk_vector_from_signals([], ["macro_rate_risk"]) == [1.0, 0.0, 0.0]
 
 
 def test_research_result_from_complete_event() -> None:

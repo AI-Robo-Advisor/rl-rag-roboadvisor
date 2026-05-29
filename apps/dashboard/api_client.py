@@ -190,6 +190,31 @@ def risk_vector_from_tags(risk_tags: list[str] | None) -> list[float]:
     return [1.0 if tag in selected else 0.0 for tag in RL_RISK_TAGS]
 
 
+def risk_vector_from_signals(
+    risk_signals: list[dict[str, Any]] | None,
+    fallback_tags: list[str] | None = None,
+) -> list[float]:
+    """Build the dashboard display vector from severity-bearing risk signals."""
+    severity_by_tag: dict[str, float] = {}
+    for item in risk_signals or []:
+        if not isinstance(item, dict):
+            continue
+        tag = str(item.get("tag") or "")
+        if tag not in RL_RISK_TAGS:
+            continue
+        try:
+            severity = float(item.get("severity", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= severity <= 1.0:
+            severity_by_tag[tag] = severity
+
+    if not severity_by_tag:
+        return risk_vector_from_tags(fallback_tags)
+
+    return [severity_by_tag.get(tag, 0.0) for tag in RL_RISK_TAGS]
+
+
 def build_optimize_payload(
     risk_aversion: float,
     risk_tags: list[str] | None = None,
