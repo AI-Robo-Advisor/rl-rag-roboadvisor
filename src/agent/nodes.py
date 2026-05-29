@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import operator
 import os
+from time import perf_counter
 from typing import Annotated, Any, Dict, List, NotRequired, TypedDict
 
 import chromadb.errors
@@ -18,7 +19,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from apps.api.config import settings
-from src.agent.risk_tags import RL_RISK_TAGS, extract_risk_tags, extract_rl_risk_tags, score_risk_vector
+from src.agent.risk_tags import (
+    RL_RISK_TAGS,
+    extract_risk_tags,
+    extract_rl_risk_tags,
+    score_risk_vector,
+)
 from src.agent.vectorstore import collection_document_count, query_documents
 
 logger = logging.getLogger(__name__)
@@ -297,7 +303,10 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
             )
 
     if insufficient and retry < 3:
+        refine_start = perf_counter()
         new_q = _refine_search_query_for_retry(state)
+        refine_ms = (perf_counter() - refine_start) * 1000
+        msgs.append(_think_log("grade_documents", f"retry refine latency={refine_ms:.1f}ms"))
         msgs.append(
             _think_log("grade_documents", f"재검색 결정 ({retry + 1}/3). 신규 쿼리: {new_q[:120]}…")
         )

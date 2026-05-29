@@ -679,6 +679,12 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {"event": "on_parser_start", "name": "ignored", "data": {"input": "skip"}}
         yield {"event": "on_chain_start", "name": "planner", "data": {"input": {"query": question}}}
         yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "초안"})()},
+        }
+        yield {
             "event": "on_chain_end",
             "name": "analyst",
             "data": {
@@ -703,15 +709,20 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         assert response.headers["x-accel-buffering"] == "no"
         lines = [line for line in response.iter_lines() if line]
 
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert '"type":"start"' in lines[0]
     assert '"type":"on_chain_start"' in lines[1]
     assert '"name":"planner"' in lines[1]
+    assert '"elapsed_ms"' in lines[1]
     assert '"data"' not in lines[1]
     assert len(lines[1]) < 1000
-    assert '"type":"on_chain_end"' in lines[2]
+    assert '"type":"on_chat_model_stream"' in lines[2]
+    assert '"node":"analyst"' in lines[2]
+    assert '"text":"초안"' in lines[2]
+    assert '"type":"on_chain_end"' in lines[3]
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
+    assert '"timings"' in lines[-1]
     assert "equity_market_risk" in lines[-1]
     assert '"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]' in lines[-1]
 

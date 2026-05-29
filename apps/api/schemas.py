@@ -1,6 +1,6 @@
 """Pydantic schemas for the FastAPI backend."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -124,6 +124,7 @@ class ResearchResponse(BaseModel):
     status: EndpointStatus
     elapsed_ms: float = 0.0
     timed_out: bool = False
+    timings: dict[str, Any] = Field(default_factory=dict)
     question: str
     report: str
     sources: list[str]
