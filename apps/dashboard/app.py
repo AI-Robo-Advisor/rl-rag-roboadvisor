@@ -25,6 +25,7 @@ try:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        anova_summary_rows,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -40,6 +41,7 @@ except ModuleNotFoundError:
         build_optimize_payload,
         calculate_period_return_metrics,
         explain_reasoning_rows,
+        anova_summary_rows,
         extract_risk_context_from_research_event,
         format_research_log_event,
         get_json,
@@ -971,6 +973,14 @@ def anova_page() -> None:
         bt5 = _get("/backtest") or _mock_backtest()
 
     anova_list: list = bt5.get("anova", _mock_backtest()["anova"])
+    summary_rows = anova_summary_rows(anova_list)
+    if summary_rows:
+        st.markdown("**계산된 ANOVA 요약**")
+        st.dataframe(
+            pd.DataFrame(summary_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
 
     _EXP_LABELS = {
         "reward_function_comparison": "검증 1 — 보상함수 비교",

@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from apps.dashboard.api_client import (
+    anova_summary_rows,
     build_optimize_payload,
     calculate_period_return_metrics,
     explain_reasoning_rows,
@@ -249,6 +250,85 @@ def test_calculate_period_return_metrics_rebases_cumulative_series() -> None:
 
     assert cumulative_return == 0.5
     assert round(excess_return, 10) == 0.3
+
+
+def test_anova_summary_rows_flattens_computed_values_without_fixed_outcomes() -> None:
+    """Dashboard should render ANOVA rows from the computed API payload."""
+    rows = anova_summary_rows(
+        [
+            {
+                "name": "reward_function_comparison",
+                "f_statistic": 1.23,
+                "p_value": 0.123,
+                "eta_squared": 0.11,
+                "post_hoc": [],
+            },
+            {
+                "name": "strategy_comparison",
+                "f_statistic": 4.56,
+                "p_value": 0.004,
+                "eta_squared": 0.22,
+                "post_hoc": [],
+            },
+            {
+                "name": "market_regime_comparison",
+                "f_statistic": 7.89,
+                "p_value": 0.001,
+                "eta_squared": 0.33,
+                "post_hoc": [],
+                "strategy_effect": {"f_statistic": 8.76, "p_value": 0.0001},
+                "interaction": {"f_statistic": 0.12, "p_value": 0.456, "significant": False},
+            },
+        ]
+    )
+
+    assert rows == [
+        {
+            "검증": "검증 1",
+            "효과": "보상 함수 비교",
+            "방법": "One-way",
+            "F 통계량": 1.23,
+            "p-value": 0.123,
+            "η²": 0.11,
+            "판정": "유의하지 않음",
+        },
+        {
+            "검증": "검증 2",
+            "효과": "전략 비교",
+            "방법": "One-way",
+            "F 통계량": 4.56,
+            "p-value": 0.004,
+            "η²": 0.22,
+            "판정": "유의함",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "국면 주효과",
+            "방법": "Two-way",
+            "F 통계량": 7.89,
+            "p-value": 0.001,
+            "η²": 0.33,
+            "판정": "유의함",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "전략 주효과",
+            "방법": "Two-way",
+            "F 통계량": 8.76,
+            "p-value": 0.0001,
+            "η²": None,
+            "판정": "유의함",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "국면 × 전략 교호작용",
+            "방법": "Two-way",
+            "F 통계량": 0.12,
+            "p-value": 0.456,
+            "η²": None,
+            "판정": "유의하지 않음",
+        },
+    ]
 
 
 def test_explain_reasoning_rows_includes_global_and_feature_context() -> None:

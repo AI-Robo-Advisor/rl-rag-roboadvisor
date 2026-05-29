@@ -228,6 +228,81 @@ def build_optimize_payload(
     }
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _anova_significance_label(p_value: float | None) -> str:
+    if p_value is None:
+        return "계산값 없음"
+    return "유의함" if p_value < 0.05 else "유의하지 않음"
+
+
+def anova_summary_rows(anova_list: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Flatten computed ANOVA results into dashboard summary rows."""
+    labels = {
+        "reward_function_comparison": ("검증 1", "보상 함수 비교", "One-way"),
+        "strategy_comparison": ("검증 2", "전략 비교", "One-way"),
+        "market_regime_comparison": ("검증 3", "국면 주효과", "Two-way"),
+    }
+    rows: list[dict[str, Any]] = []
+    for item in anova_list or []:
+        if not isinstance(item, dict):
+            continue
+        check, effect, method = labels.get(
+            str(item.get("name") or ""),
+            (str(item.get("name") or "ANOVA"), "주효과", "ANOVA"),
+        )
+        f_statistic = _float_or_none(item.get("f_statistic"))
+        p_value = _float_or_none(item.get("p_value"))
+        rows.append(
+            {
+                "검증": check,
+                "효과": effect,
+                "방법": method,
+                "F 통계량": f_statistic,
+                "p-value": p_value,
+                "η²": _float_or_none(item.get("eta_squared")),
+                "판정": _anova_significance_label(p_value),
+            }
+        )
+
+        if str(item.get("name") or "") != "market_regime_comparison":
+            continue
+        strategy_effect = item.get("strategy_effect") or {}
+        if isinstance(strategy_effect, dict):
+            strategy_p = _float_or_none(strategy_effect.get("p_value"))
+            rows.append(
+                {
+                    "검증": check,
+                    "효과": "전략 주효과",
+                    "방법": method,
+                    "F 통계량": _float_or_none(strategy_effect.get("f_statistic")),
+                    "p-value": strategy_p,
+                    "η²": None,
+                    "판정": _anova_significance_label(strategy_p),
+                }
+            )
+        interaction = item.get("interaction") or {}
+        if isinstance(interaction, dict):
+            interaction_p = _float_or_none(interaction.get("p_value"))
+            rows.append(
+                {
+                    "검증": check,
+                    "효과": "국면 × 전략 교호작용",
+                    "방법": method,
+                    "F 통계량": _float_or_none(interaction.get("f_statistic")),
+                    "p-value": interaction_p,
+                    "η²": None,
+                    "판정": _anova_significance_label(interaction_p),
+                }
+            )
+    return rows
+
+
 def get_json(
     base_url: str,
     endpoint: str,
