@@ -338,18 +338,21 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         return
 
     final_state: dict[str, Any] | None = None
-    node_starts: dict[str, float] = {}
+    run_starts: dict[str, tuple[str, float]] = {}
     timings: dict[str, float] = {}
     try:
         async for event in stream_graph_events(question):
             elapsed_ms = _elapsed_ms(start)
             node = _graph_event_node(event)
+            timing_key = _graph_event_timing_key(event)
+            run_id = str(event.get("run_id") or f"{timing_key}:{event.get('event')}")
             duration_ms = None
             if event.get("event") in {"on_chain_start", "on_tool_start"}:
-                node_starts[node] = perf_counter()
-            elif event.get("event") in {"on_chain_end", "on_tool_end"} and node in node_starts:
-                duration_ms = round((perf_counter() - node_starts.pop(node)) * 1000, 2)
-                timings[f"{node}_ms"] = duration_ms
+                run_starts[run_id] = (timing_key, perf_counter())
+            elif event.get("event") in {"on_chain_end", "on_tool_end"} and run_id in run_starts:
+                started_key, started_at = run_starts.pop(run_id)
+                duration_ms = round((perf_counter() - started_at) * 1000, 2)
+                timings[f"{started_key}_ms"] = duration_ms
 
             event_state = _state_from_graph_event(event)
             if event_state:
@@ -436,6 +439,14 @@ def _graph_event_node(event: dict[str, Any]) -> str:
     if isinstance(metadata, dict) and metadata.get("langgraph_node"):
         return str(metadata["langgraph_node"])
     return str(event.get("name") or "research")
+
+
+def _graph_event_timing_key(event: dict[str, Any]) -> str:
+    """Return the timing bucket for a LangGraph stream event."""
+    name = str(event.get("name") or "")
+    if name == "route_after_grade":
+        return name
+    return _graph_event_node(event)
 
 
 def _compact_graph_event(

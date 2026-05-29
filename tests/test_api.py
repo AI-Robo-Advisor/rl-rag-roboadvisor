@@ -727,6 +727,61 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
     assert '"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]' in lines[-1]
 
 
+def test_research_stream_keeps_nested_route_timing_separate(monkeypatch) -> None:
+    """Nested router events should not overwrite grade_documents timing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chain_start",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"input": {"query": question}},
+        }
+        yield {
+            "event": "on_chain_start",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"input": {}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"output": "analyst"},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    route_end = next(
+        event for event in lines if event.get("name") == "route_after_grade" and event["type"].endswith("_end")
+    )
+    grade_end = next(
+        event for event in lines if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+    )
+    complete = lines[-1]
+
+    assert "duration_ms" in route_end
+    assert "duration_ms" in grade_end
+    assert "route_after_grade_ms" in complete["timings"]
+    assert "grade_documents_ms" in complete["timings"]
+
+
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:
     """POST /research/stream should not block when LangGraph cannot run."""
     monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "")
