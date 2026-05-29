@@ -7,15 +7,20 @@ from typing import Any
 import requests
 
 from apps.dashboard.api_client import (
+    anova_attainment_cards,
+    anova_summary_rows,
     build_optimize_payload,
     calculate_period_return_metrics,
     explain_reasoning_rows,
+    filter_post_hoc_rows,
     extract_risk_signals_from_research_event,
     extract_risk_tags_from_research_event,
     format_research_log_event,
     get_json,
     post_json,
+    post_hoc_group_options,
     research_result_from_event,
+    risk_vector_from_signals,
     risk_vector_from_tags,
     stream_ndjson,
 )
@@ -180,6 +185,21 @@ def test_research_complete_event_extracts_rl_risk_tags() -> None:
     assert risk_vector_from_tags(["equity_market_risk", "geopolitical_fx_risk"]) == [0.0, 1.0, 1.0]
 
 
+def test_risk_vector_from_signals_uses_severity_values() -> None:
+    """Dashboard display vector should preserve risk signal severity."""
+    signals = [
+        {"tag": "equity_market_risk", "severity": 0.66},
+        {"tag": "geopolitical_fx_risk", "severity": 0.33},
+    ]
+
+    assert risk_vector_from_signals(signals, ["macro_rate_risk"]) == [0.0, 0.66, 0.33]
+
+
+def test_risk_vector_from_signals_falls_back_to_tags_when_empty() -> None:
+    """Dashboard display vector should remain compatible with tag-only events."""
+    assert risk_vector_from_signals([], ["macro_rate_risk"]) == [1.0, 0.0, 0.0]
+
+
 def test_research_result_from_complete_event() -> None:
     """Dashboard should keep final report and sources separate from logs."""
     event = {
@@ -233,6 +253,138 @@ def test_calculate_period_return_metrics_rebases_cumulative_series() -> None:
 
     assert cumulative_return == 0.5
     assert round(excess_return, 10) == 0.3
+
+
+def test_anova_summary_rows_flattens_computed_values_without_fixed_outcomes() -> None:
+    """Dashboard should render ANOVA rows from the computed API payload."""
+    rows = anova_summary_rows(
+        [
+            {
+                "name": "reward_function_comparison",
+                "f_statistic": 1.23,
+                "p_value": 0.123,
+                "eta_squared": 0.11,
+                "post_hoc": [],
+            },
+            {
+                "name": "strategy_comparison",
+                "f_statistic": 4.56,
+                "p_value": 0.004,
+                "eta_squared": 0.22,
+                "post_hoc": [],
+            },
+            {
+                "name": "market_regime_comparison",
+                "f_statistic": 7.89,
+                "p_value": 0.001,
+                "eta_squared": 0.33,
+                "post_hoc": [],
+                "strategy_effect": {"f_statistic": 8.76, "p_value": 0.0001},
+                "interaction": {"f_statistic": 0.12, "p_value": 0.456, "significant": False},
+            },
+        ]
+    )
+
+    assert rows == [
+        {
+            "검증": "검증 1",
+            "효과": "보상 함수 비교",
+            "방법": "One-way",
+            "F 통계량": 1.23,
+            "p-value": 0.123,
+            "η²": 0.11,
+            "판정": "유의하지 않음",
+            "해석": "효과 크기와 비유의 원인 해석 필요",
+        },
+        {
+            "검증": "검증 2",
+            "효과": "전략 비교",
+            "방법": "One-way",
+            "F 통계량": 4.56,
+            "p-value": 0.004,
+            "η²": 0.22,
+            "판정": "유의함",
+            "해석": "전략 간 성과 차이 확인",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "국면 주효과",
+            "방법": "Two-way",
+            "F 통계량": 7.89,
+            "p-value": 0.001,
+            "η²": 0.33,
+            "판정": "유의함",
+            "해석": "시장 국면별 성과 차이 확인",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "전략 주효과",
+            "방법": "Two-way",
+            "F 통계량": 8.76,
+            "p-value": 0.0001,
+            "η²": None,
+            "판정": "유의함",
+            "해석": "전략 자체의 성과 차이 확인",
+        },
+        {
+            "검증": "검증 3",
+            "효과": "국면 × 전략 교호작용",
+            "방법": "Two-way",
+            "F 통계량": 0.12,
+            "p-value": 0.456,
+            "η²": None,
+            "판정": "유의하지 않음",
+            "해석": "전략 우위 일관성 확인",
+        },
+    ]
+
+
+def test_anova_attainment_cards_reflect_rubric_from_computed_values() -> None:
+    """Dashboard cards should describe ANOVA rubric status from computed values."""
+    cards = anova_attainment_cards(
+        [
+            {"name": "reward_function_comparison", "p_value": 0.001, "eta_squared": 0.1, "post_hoc": []},
+            {"name": "strategy_comparison", "p_value": 0.002, "eta_squared": 0.2, "post_hoc": []},
+            {
+                "name": "market_regime_comparison",
+                "p_value": 0.003,
+                "eta_squared": 0.3,
+                "post_hoc": [],
+                "strategy_effect": {"p_value": 0.004},
+                "interaction": {"p_value": 0.9},
+            },
+        ]
+    )
+
+    assert cards == [
+        {
+            "label": "보고 완성도",
+            "status": "달성",
+            "detail": "p-value, η², 사후검정/비유의 해석 항목 보고",
+        },
+        {
+            "label": "주요 효과 유의성",
+            "status": "달성",
+            "detail": "보상 함수, 전략, 국면, 전략 주효과 p < 0.05 기준",
+        },
+        {
+            "label": "교호작용 해석",
+            "status": "일관성 확인",
+            "detail": "비유의이면 전략 우위가 국면별로 크게 뒤집히지 않음",
+        },
+    ]
+
+
+def test_post_hoc_filter_uses_actual_group_names() -> None:
+    """Post-hoc filters should come from Tukey rows, not fixed strategy names."""
+    rows = [
+        {"group1": "PPO-return", "group2": "PPO-sharpe"},
+        {"group1": "PPO-mdd", "group2": "PPO-return"},
+    ]
+
+    assert post_hoc_group_options(rows) == ["PPO-mdd", "PPO-return", "PPO-sharpe"]
+    assert filter_post_hoc_rows(rows, []) == rows
+    assert filter_post_hoc_rows(rows, ["PPO-sharpe"]) == [rows[0]]
 
 
 def test_explain_reasoning_rows_includes_global_and_feature_context() -> None:
