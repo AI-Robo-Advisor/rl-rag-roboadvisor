@@ -769,10 +769,14 @@ def test_research_stream_keeps_nested_route_timing_separate(monkeypatch) -> None
         lines = [json.loads(line) for line in response.iter_lines() if line]
 
     route_end = next(
-        event for event in lines if event.get("name") == "route_after_grade" and event["type"].endswith("_end")
+        event
+        for event in lines
+        if event.get("name") == "route_after_grade" and event["type"].endswith("_end")
     )
     grade_end = next(
-        event for event in lines if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+        event
+        for event in lines
+        if event.get("name") == "grade_documents" and event["type"].endswith("_end")
     )
     complete = lines[-1]
 
@@ -780,6 +784,39 @@ def test_research_stream_keeps_nested_route_timing_separate(monkeypatch) -> None
     assert "duration_ms" in grade_end
     assert "route_after_grade_ms" in complete["timings"]
     assert "grade_documents_ms" in complete["timings"]
+
+
+def test_research_stream_maps_chat_tokens_to_langgraph_node(monkeypatch) -> None:
+    """Chat model stream chunks should use the LangGraph node name for dashboard routing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "실시간 토큰"})()},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "analyst",
+            "data": {"output": {"response": "실시간 토큰"}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert lines[1]["type"] == "on_chat_model_stream"
+    assert lines[1]["name"] == "ChatOpenAI"
+    assert lines[1]["node"] == "analyst"
+    assert lines[1]["text"] == "실시간 토큰"
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:

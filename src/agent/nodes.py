@@ -16,6 +16,7 @@ from typing import Annotated, Any, Dict, List, NotRequired, TypedDict
 import chromadb.errors
 import openai
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from apps.api.config import settings
@@ -34,6 +35,13 @@ llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.3,
     api_key=settings.OPENAI_API_KEY,
+)
+
+analyst_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.3,
+    api_key=settings.OPENAI_API_KEY,
+    streaming=True,
 )
 
 
@@ -337,7 +345,7 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
-def analyst_node(state: AgentState) -> Dict[str, Any]:
+def analyst_node(state: AgentState, config: RunnableConfig = None) -> Dict[str, Any]:
     """
     ``context``와 리스크 태그를 근거로 최종 투자 관점 의견을 작성합니다.
 
@@ -400,7 +408,10 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     )
 
     try:
-        response = llm.invoke([sys, hum]).content + DISCLAIMER
+        response_parts: list[str] = []
+        for chunk in analyst_llm.stream([sys, hum], config=config):
+            response_parts.append(str(getattr(chunk, "content", "") or ""))
+        response = "".join(response_parts) + DISCLAIMER
     except openai.OpenAIError as e:
         logger.error("analyst: LLM 호출 실패 (%s).", e)
         response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}" + DISCLAIMER
