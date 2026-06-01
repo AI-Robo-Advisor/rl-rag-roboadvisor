@@ -343,16 +343,15 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
     try:
         async for event in stream_graph_events(question):
             elapsed_ms = _elapsed_ms(start)
-            node = _graph_event_node(event)
             timing_key = _graph_event_timing_key(event)
-            run_id = str(event.get("run_id") or f"{timing_key}:{event.get('event')}")
+            run_id = str(event.get("run_id") or timing_key)
             duration_ms = None
             if event.get("event") in {"on_chain_start", "on_tool_start"}:
                 run_starts[run_id] = (timing_key, perf_counter())
             elif event.get("event") in {"on_chain_end", "on_tool_end"} and run_id in run_starts:
                 started_key, started_at = run_starts.pop(run_id)
                 duration_ms = round((perf_counter() - started_at) * 1000, 2)
-                timings[f"{started_key}_ms"] = duration_ms
+                _record_timing(timings, started_key, duration_ms)
 
             event_state = _state_from_graph_event(event)
             if event_state:
@@ -447,6 +446,19 @@ def _graph_event_timing_key(event: dict[str, Any]) -> str:
     if name == "route_after_grade":
         return name
     return _graph_event_node(event)
+
+
+def _record_timing(timings: dict[str, float], key: str, duration_ms: float) -> None:
+    """Store a timing value without overwriting repeated node executions."""
+    base_key = f"{key}_ms"
+    if base_key not in timings:
+        timings[base_key] = duration_ms
+        return
+
+    index = 2
+    while f"{key}_{index}_ms" in timings:
+        index += 1
+    timings[f"{key}_{index}_ms"] = duration_ms
 
 
 def _compact_graph_event(

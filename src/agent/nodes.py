@@ -345,7 +345,7 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
-def analyst_node(state: AgentState, config: RunnableConfig = None) -> Dict[str, Any]:
+def analyst_node(state: AgentState, config: RunnableConfig | None = None) -> Dict[str, Any]:
     """
     ``context``와 리스크 태그를 근거로 최종 투자 관점 의견을 작성합니다.
 

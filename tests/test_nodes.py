@@ -10,8 +10,6 @@ class _FakeChunk:
 
 
 class _FakeStreamingLLM:
-    streaming = True
-
     def stream(self, messages, config=None):
         yield _FakeChunk("실시간 ")
         yield _FakeChunk("리포트")
