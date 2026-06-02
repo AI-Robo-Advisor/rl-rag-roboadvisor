@@ -410,7 +410,7 @@ def analyst_node(state: AgentState, config: RunnableConfig | None = None) -> Dic
     try:
         response_parts: list[str] = []
         for chunk in analyst_llm.stream([sys, hum], config=config):
-            response_parts.append(str(getattr(chunk, "content", "") or ""))
+            response_parts.append(str(getattr(chunk, "content", "")))
         response = "".join(response_parts) + DISCLAIMER
     except openai.OpenAIError as e:
         logger.error("analyst: LLM 호출 실패 (%s).", e)

@@ -560,7 +560,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         reasoning_trace=reasoning_trace,
         risk_tags=risk_tags,
         risk_signals=risk_signals,
-        timings={str(key): value for key, value in timings.items()},
+        timings=timings,
     )
 
 
