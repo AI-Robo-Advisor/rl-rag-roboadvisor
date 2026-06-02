@@ -212,6 +212,31 @@ def risk_vector_from_tags(risk_tags: list[str] | None) -> list[float]:
     return [1.0 if tag in selected else 0.0 for tag in RL_RISK_TAGS]
 
 
+def risk_vector_from_signals(
+    risk_signals: list[dict[str, Any]] | None,
+    fallback_tags: list[str] | None = None,
+) -> list[float]:
+    """Build the dashboard display vector from severity-bearing risk signals."""
+    severity_by_tag: dict[str, float] = {}
+    for item in risk_signals or []:
+        if not isinstance(item, dict):
+            continue
+        tag = str(item.get("tag") or "")
+        if tag not in RL_RISK_TAGS:
+            continue
+        try:
+            severity = float(item.get("severity", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= severity <= 1.0:
+            severity_by_tag[tag] = severity
+
+    if not severity_by_tag:
+        return risk_vector_from_tags(fallback_tags)
+
+    return [severity_by_tag.get(tag, 0.0) for tag in RL_RISK_TAGS]
+
+
 def build_optimize_payload(
     risk_aversion: float,
     risk_tags: list[str] | None = None,
@@ -223,6 +248,184 @@ def build_optimize_payload(
         "risk_tags": list(risk_tags or []),
         "risk_signals": list(risk_signals or []),
     }
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _anova_significance_label(p_value: float | None) -> str:
+    if p_value is None:
+        return "계산값 없음"
+    return "유의함" if p_value < 0.05 else "유의하지 않음"
+
+
+def _is_significant(p_value: Any) -> bool:
+    numeric = _float_or_none(p_value)
+    return numeric is not None and numeric < 0.05
+
+
+def _anova_item_by_name(anova_list: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    return next((item for item in anova_list if item.get("name") == name), {})
+
+
+def _anova_row_interpretation(effect: str, p_value: float | None) -> str:
+    significant = p_value is not None and p_value < 0.05
+    if effect == "보상 함수 비교":
+        return "보상 함수별 성과 차이 확인" if significant else "효과 크기와 비유의 원인 해석 필요"
+    if effect == "전략 비교":
+        return "전략 간 성과 차이 확인" if significant else "효과 크기와 비유의 원인 해석 필요"
+    if effect == "국면 주효과":
+        return "시장 국면별 성과 차이 확인" if significant else "효과 크기와 비유의 원인 해석 필요"
+    if effect == "전략 주효과":
+        return "전략 자체의 성과 차이 확인" if significant else "효과 크기와 비유의 원인 해석 필요"
+    if effect == "국면 × 전략 교호작용":
+        return "국면별 전략 우위 변화 확인" if significant else "전략 우위 일관성 확인"
+    return "계산 결과 확인"
+
+
+def anova_attainment_cards(anova_list: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """Summarize whether the ANOVA reporting rubric is satisfied."""
+    rows = [item for item in anova_list or [] if isinstance(item, dict)]
+    reward = _anova_item_by_name(rows, "reward_function_comparison")
+    strategy = _anova_item_by_name(rows, "strategy_comparison")
+    regime = _anova_item_by_name(rows, "market_regime_comparison")
+    strategy_effect = regime.get("strategy_effect") or {}
+    interaction = regime.get("interaction") or {}
+
+    required = [reward, strategy, regime]
+    reporting_complete = all(
+        item
+        and _float_or_none(item.get("p_value")) is not None
+        and _float_or_none(item.get("eta_squared")) is not None
+        and isinstance(item.get("post_hoc"), list)
+        for item in required
+    )
+    main_effects_significant = all(
+        [
+            _is_significant(reward.get("p_value")),
+            _is_significant(strategy.get("p_value")),
+            _is_significant(regime.get("p_value")),
+            isinstance(strategy_effect, dict) and _is_significant(strategy_effect.get("p_value")),
+        ]
+    )
+    interaction_p = _float_or_none(interaction.get("p_value") if isinstance(interaction, dict) else None)
+    interaction_consistent = interaction_p is not None and interaction_p >= 0.05
+
+    return [
+        {
+            "label": "보고 완성도",
+            "status": "달성" if reporting_complete else "점검 필요",
+            "detail": "p-value, η², 사후검정/비유의 해석 항목 보고",
+        },
+        {
+            "label": "주요 효과 유의성",
+            "status": "달성" if main_effects_significant else "해석 필요",
+            "detail": "보상 함수, 전략, 국면, 전략 주효과 p < 0.05 기준",
+        },
+        {
+            "label": "교호작용 해석",
+            "status": "일관성 확인" if interaction_consistent else "국면별 차이 확인",
+            "detail": "비유의이면 전략 우위가 국면별로 크게 뒤집히지 않음",
+        },
+    ]
+
+
+def anova_summary_rows(anova_list: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Flatten computed ANOVA results into dashboard summary rows."""
+    labels = {
+        "reward_function_comparison": ("검증 1", "보상 함수 비교", "One-way"),
+        "strategy_comparison": ("검증 2", "전략 비교", "One-way"),
+        "market_regime_comparison": ("검증 3", "국면 주효과", "Two-way"),
+    }
+    rows: list[dict[str, Any]] = []
+    for item in anova_list or []:
+        if not isinstance(item, dict):
+            continue
+        check, effect, method = labels.get(
+            str(item.get("name") or ""),
+            (str(item.get("name") or "ANOVA"), "주효과", "ANOVA"),
+        )
+        f_statistic = _float_or_none(item.get("f_statistic"))
+        p_value = _float_or_none(item.get("p_value"))
+        rows.append(
+            {
+                "검증": check,
+                "효과": effect,
+                "방법": method,
+                "F 통계량": f_statistic,
+                "p-value": p_value,
+                "η²": _float_or_none(item.get("eta_squared")),
+                "판정": _anova_significance_label(p_value),
+                "해석": _anova_row_interpretation(effect, p_value),
+            }
+        )
+
+        if str(item.get("name") or "") != "market_regime_comparison":
+            continue
+        strategy_effect = item.get("strategy_effect") or {}
+        if isinstance(strategy_effect, dict):
+            strategy_p = _float_or_none(strategy_effect.get("p_value"))
+            rows.append(
+                {
+                    "검증": check,
+                    "효과": "전략 주효과",
+                    "방법": method,
+                    "F 통계량": _float_or_none(strategy_effect.get("f_statistic")),
+                    "p-value": strategy_p,
+                    "η²": None,
+                    "판정": _anova_significance_label(strategy_p),
+                    "해석": _anova_row_interpretation("전략 주효과", strategy_p),
+                }
+            )
+        interaction = item.get("interaction") or {}
+        if isinstance(interaction, dict):
+            interaction_p = _float_or_none(interaction.get("p_value"))
+            rows.append(
+                {
+                    "검증": check,
+                    "효과": "국면 × 전략 교호작용",
+                    "방법": method,
+                    "F 통계량": _float_or_none(interaction.get("f_statistic")),
+                    "p-value": interaction_p,
+                    "η²": None,
+                    "판정": _anova_significance_label(interaction_p),
+                    "해석": _anova_row_interpretation("국면 × 전략 교호작용", interaction_p),
+                }
+            )
+    return rows
+
+
+def post_hoc_group_options(post_hoc: list[dict[str, Any]] | None) -> list[str]:
+    """Return group filter options from computed Tukey HSD rows."""
+    groups: set[str] = set()
+    for row in post_hoc or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("group1", "group2"):
+            value = str(row.get(key) or "")
+            if value:
+                groups.add(value)
+    return sorted(groups)
+
+
+def filter_post_hoc_rows(
+    post_hoc: list[dict[str, Any]] | None,
+    selected_groups: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Filter Tukey HSD rows by selected groups, preserving all rows when empty."""
+    rows = [row for row in post_hoc or [] if isinstance(row, dict)]
+    selected = set(selected_groups or [])
+    if not selected:
+        return rows
+    return [
+        row
+        for row in rows
+        if str(row.get("group1") or "") in selected or str(row.get("group2") or "") in selected
+    ]
 
 
 def get_json(
