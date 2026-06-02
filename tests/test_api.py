@@ -679,6 +679,12 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {"event": "on_parser_start", "name": "ignored", "data": {"input": "skip"}}
         yield {"event": "on_chain_start", "name": "planner", "data": {"input": {"query": question}}}
         yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "초안"})()},
+        }
+        yield {
             "event": "on_chain_end",
             "name": "analyst",
             "data": {
@@ -703,17 +709,184 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         assert response.headers["x-accel-buffering"] == "no"
         lines = [line for line in response.iter_lines() if line]
 
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert '"type":"start"' in lines[0]
     assert '"type":"on_chain_start"' in lines[1]
     assert '"name":"planner"' in lines[1]
+    assert '"elapsed_ms"' in lines[1]
     assert '"data"' not in lines[1]
     assert len(lines[1]) < 1000
-    assert '"type":"on_chain_end"' in lines[2]
+    assert '"type":"on_chat_model_stream"' in lines[2]
+    assert '"node":"analyst"' in lines[2]
+    assert '"text":"초안"' in lines[2]
+    assert '"type":"on_chain_end"' in lines[3]
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
+    assert '"timings"' in lines[-1]
     assert "equity_market_risk" in lines[-1]
     assert '"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]' in lines[-1]
+
+
+def test_research_stream_keeps_nested_route_timing_separate(monkeypatch) -> None:
+    """Nested router events should not overwrite grade_documents timing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chain_start",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"input": {"query": question}},
+        }
+        yield {
+            "event": "on_chain_start",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"input": {}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"output": "analyst"},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    route_end = next(
+        event
+        for event in lines
+        if event.get("name") == "route_after_grade" and event["type"].endswith("_end")
+    )
+    grade_end = next(
+        event
+        for event in lines
+        if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+    )
+    complete = lines[-1]
+
+    assert "duration_ms" in route_end
+    assert "duration_ms" in grade_end
+    assert "route_after_grade_ms" in complete["timings"]
+    assert "grade_documents_ms" in complete["timings"]
+
+
+def test_research_stream_matches_timing_without_run_id(monkeypatch) -> None:
+    """Events without run_id should still match start/end timing buckets."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chain_start",
+            "name": "grade_documents",
+            "data": {"input": {"query": question}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "grade_documents",
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    grade_end = next(
+        event
+        for event in lines
+        if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+    )
+    complete = lines[-1]
+
+    assert "duration_ms" in grade_end
+    assert "grade_documents_ms" in complete["timings"]
+
+
+def test_research_stream_preserves_repeated_node_timings(monkeypatch) -> None:
+    """Repeated node executions should keep each timing instead of overwriting."""
+
+    async def fake_stream_graph_events(question: str):
+        for run_id in ("grade-run-1", "grade-run-2"):
+            yield {
+                "event": "on_chain_start",
+                "name": "grade_documents",
+                "run_id": run_id,
+                "data": {"input": {"query": question}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "grade_documents",
+                "run_id": run_id,
+                "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+            }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    complete = lines[-1]
+
+    assert "grade_documents_ms" in complete["timings"]
+    assert "grade_documents_2_ms" in complete["timings"]
+
+
+def test_research_stream_maps_chat_tokens_to_langgraph_node(monkeypatch) -> None:
+    """Chat model stream chunks should use the LangGraph node name for dashboard routing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "실시간 토큰"})()},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "analyst",
+            "data": {"output": {"response": "실시간 토큰"}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert lines[1]["type"] == "on_chat_model_stream"
+    assert lines[1]["name"] == "ChatOpenAI"
+    assert lines[1]["node"] == "analyst"
+    assert lines[1]["text"] == "실시간 토큰"
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:

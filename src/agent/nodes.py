@@ -10,15 +10,22 @@ from __future__ import annotations
 import logging
 import operator
 import os
+from time import perf_counter
 from typing import Annotated, Any, Dict, List, NotRequired, TypedDict
 
 import chromadb.errors
 import openai
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from apps.api.config import settings
-from src.agent.risk_tags import RL_RISK_TAGS, extract_risk_tags, extract_rl_risk_tags, score_risk_vector
+from src.agent.risk_tags import (
+    RL_RISK_TAGS,
+    extract_risk_tags,
+    extract_rl_risk_tags,
+    score_risk_vector,
+)
 from src.agent.vectorstore import collection_document_count, query_documents
 
 logger = logging.getLogger(__name__)
@@ -28,6 +35,13 @@ llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.3,
     api_key=settings.OPENAI_API_KEY,
+)
+
+analyst_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.3,
+    api_key=settings.OPENAI_API_KEY,
+    streaming=True,
 )
 
 
@@ -297,7 +311,10 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
             )
 
     if insufficient and retry < 3:
+        refine_start = perf_counter()
         new_q = _refine_search_query_for_retry(state)
+        refine_ms = (perf_counter() - refine_start) * 1000
+        msgs.append(_think_log("grade_documents", f"retry refine latency={refine_ms:.1f}ms"))
         msgs.append(
             _think_log("grade_documents", f"재검색 결정 ({retry + 1}/3). 신규 쿼리: {new_q[:120]}…")
         )
@@ -328,7 +345,7 @@ def grade_documents_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
-def analyst_node(state: AgentState) -> Dict[str, Any]:
+def analyst_node(state: AgentState, config: RunnableConfig | None = None) -> Dict[str, Any]:
     """
     ``context``와 리스크 태그를 근거로 최종 투자 관점 의견을 작성합니다.
 
@@ -391,7 +408,10 @@ def analyst_node(state: AgentState) -> Dict[str, Any]:
     )
 
     try:
-        response = llm.invoke([sys, hum]).content + DISCLAIMER
+        response_parts: list[str] = []
+        for chunk in analyst_llm.stream([sys, hum], config=config):
+            response_parts.append(str(getattr(chunk, "content", "")))
+        response = "".join(response_parts) + DISCLAIMER
     except openai.OpenAIError as e:
         logger.error("analyst: LLM 호출 실패 (%s).", e)
         response = f"[분석 오류] LLM 호출에 실패했습니다: {type(e).__name__}" + DISCLAIMER

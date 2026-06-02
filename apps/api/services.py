@@ -338,12 +338,25 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         return
 
     final_state: dict[str, Any] | None = None
+    run_starts: dict[str, tuple[str, float]] = {}
+    timings: dict[str, float] = {}
     try:
         async for event in stream_graph_events(question):
+            elapsed_ms = _elapsed_ms(start)
+            timing_key = _graph_event_timing_key(event)
+            run_id = str(event.get("run_id") or timing_key)
+            duration_ms = None
+            if event.get("event") in {"on_chain_start", "on_tool_start"}:
+                run_starts[run_id] = (timing_key, perf_counter())
+            elif event.get("event") in {"on_chain_end", "on_tool_end"} and run_id in run_starts:
+                started_key, started_at = run_starts.pop(run_id)
+                duration_ms = round((perf_counter() - started_at) * 1000, 2)
+                _record_timing(timings, started_key, duration_ms)
+
             event_state = _state_from_graph_event(event)
             if event_state:
                 final_state = {**(final_state or {}), **event_state}
-            compact = _compact_graph_event(event)
+            compact = _compact_graph_event(event, elapsed_ms=elapsed_ms, duration_ms=duration_ms)
             if compact:
                 yield _to_ndjson(compact)
     except Exception as exc:
@@ -371,7 +384,9 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         )
         return
 
-    response = _research_response_from_state(question, final_state or {})
+    total_ms = _elapsed_ms(start)
+    timings["total_ms"] = total_ms
+    response = _research_response_from_state(question, {**(final_state or {}), "timings": timings})
     log_e2e_event(
         "/research/stream",
         status=response.status,
@@ -391,6 +406,7 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
             "reasoning_trace": response.reasoning_trace,
             "risk_tags": response.risk_tags,
             "risk_signals": [signal.model_dump() for signal in response.risk_signals],
+            "timings": response.timings,
         }
     )
 
@@ -410,19 +426,54 @@ def _state_from_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "risk_tags",
         "rl_risk_tags",
         "risk_signals",
+        "timings",
     }
     if not any(key in output for key in useful_keys):
         return None
     return {str(key): value for key, value in output.items() if key in useful_keys}
 
 
-def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+def _graph_event_node(event: dict[str, Any]) -> str:
+    metadata = event.get("metadata") or {}
+    if isinstance(metadata, dict) and metadata.get("langgraph_node"):
+        return str(metadata["langgraph_node"])
+    return str(event.get("name") or "research")
+
+
+def _graph_event_timing_key(event: dict[str, Any]) -> str:
+    """Return the timing bucket for a LangGraph stream event."""
+    name = str(event.get("name") or "")
+    if name == "route_after_grade":
+        return name
+    return _graph_event_node(event)
+
+
+def _record_timing(timings: dict[str, float], key: str, duration_ms: float) -> None:
+    """Store a timing value without overwriting repeated node executions."""
+    base_key = f"{key}_ms"
+    if base_key not in timings:
+        timings[base_key] = duration_ms
+        return
+
+    index = 2
+    while f"{key}_{index}_ms" in timings:
+        index += 1
+    timings[f"{key}_{index}_ms"] = duration_ms
+
+
+def _compact_graph_event(
+    event: dict[str, Any],
+    *,
+    elapsed_ms: float | None = None,
+    duration_ms: float | None = None,
+) -> dict[str, Any] | None:
     """Convert LangGraph events to small dashboard-oriented NDJSON payloads."""
     event_type = str(event.get("event", "event"))
     if event_type not in _STREAM_EVENT_ALLOWLIST:
         return None
 
     name = str(event.get("name") or "research")
+    node = _graph_event_node(event)
     data = event.get("data") or {}
     text = ""
     if isinstance(data, dict):
@@ -435,7 +486,12 @@ def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
 
     if event_type == "on_chat_model_stream" and not text:
         return None
-    return {"type": event_type, "name": name, "text": text[:500]}
+    compact = {"type": event_type, "name": name, "node": node, "text": text[:500]}
+    if elapsed_ms is not None:
+        compact["elapsed_ms"] = elapsed_ms
+    if duration_ms is not None:
+        compact["duration_ms"] = duration_ms
+    return compact
 
 
 def _compact_event_text(value: Any) -> str:
@@ -494,6 +550,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         risk_tags
     )
     sources = [str(source) for source in state.get("sources", []) if source]
+    timings = state.get("timings") if isinstance(state.get("timings"), dict) else {}
 
     return ResearchResponse(
         status="ready",
@@ -503,6 +560,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         reasoning_trace=reasoning_trace,
         risk_tags=risk_tags,
         risk_signals=risk_signals,
+        timings=timings,
     )
 
 
