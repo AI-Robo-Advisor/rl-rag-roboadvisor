@@ -129,6 +129,9 @@ def _load_window_scaler(window_name: str) -> tuple[pd.Series, pd.Series]:
 def _normalize_with_scaler(raw: pd.DataFrame, window_name: str) -> pd.DataFrame:
     """window_name train scaler로 raw_features를 Z-score 정규화."""
     mean, std = _load_window_scaler(window_name)
+    missing = set(raw.columns) - set(mean.index)
+    if missing:
+        raise ValueError(f"Scaler에 없는 피처: {missing}")
     std_safe = std.replace(0.0, np.nan).fillna(1.0)
     return (raw - mean) / std_safe
 
