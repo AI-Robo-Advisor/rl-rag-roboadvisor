@@ -132,7 +132,7 @@ def _normalize_with_scaler(raw: pd.DataFrame, window_name: str) -> pd.DataFrame:
     missing = set(raw.columns) - set(mean.index)
     if missing:
         raise ValueError(f"Scaler에 없는 피처: {missing}")
-    std_safe = std.replace(0.0, np.nan).fillna(1.0)
+    std_safe = std.replace(0.0, 1e-8)
     return (raw - mean) / std_safe
 
 
