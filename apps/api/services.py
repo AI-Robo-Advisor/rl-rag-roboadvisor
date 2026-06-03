@@ -45,6 +45,8 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
+RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
+SCALERS_DIR = Path("data/processed/scalers")
 SHAP_ARTIFACT_PATH = Path("data/results/shap_explanations.json")
 UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
@@ -107,6 +109,27 @@ def _load_returns() -> pd.DataFrame:
 def _load_features() -> pd.DataFrame:
     """Load processed features once per API process."""
     return pd.read_parquet(FEATURES_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_raw_features() -> pd.DataFrame:
+    """RL 경로 전용 — walk-forward 정규화 전 raw features."""
+    return pd.read_parquet(RAW_FEATURES_PATH)
+
+
+def _load_window_scaler(window_name: str) -> tuple[pd.Series, pd.Series]:
+    """윈도우별 train mean/std 로드 (data/processed/scalers/{window}_feature_stats.json)."""
+    path = SCALERS_DIR / f"{window_name}_feature_stats.json"
+    with path.open(encoding="utf-8") as f:
+        stats = json.load(f)
+    return pd.Series(stats["mean"]), pd.Series(stats["std"])
+
+
+def _normalize_with_scaler(raw: pd.DataFrame, window_name: str) -> pd.DataFrame:
+    """window_name train scaler로 raw_features를 Z-score 정규화."""
+    mean, std = _load_window_scaler(window_name)
+    std_safe = std.replace(0.0, np.nan).fillna(1.0)
+    return (raw - mean) / std_safe
 
 
 _UNIFIED_EVENTS_CACHE: tuple[Path, int, pd.DataFrame] | None = None
@@ -657,7 +680,7 @@ def _predict_ppo_weights(
 ) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
     returns = _load_returns()
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     missing = [ticker for ticker in tickers if ticker not in returns.columns]
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
@@ -713,6 +736,7 @@ def warm_runtime_caches() -> None:
     try:
         _load_returns()
         _load_features()
+        _load_raw_features()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -723,7 +747,7 @@ def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
     """Compute a bounded SHAP explanation through src.rl.shap."""
     from src.rl.shap import compute_shap_explanation
 
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     returns = _load_returns()
     return compute_shap_explanation(
         model_path=PPO_MODEL_PATH,
@@ -799,7 +823,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     from src.rl.backtest import WINDOWS, run_window_backtest
 
     returns = _load_returns()
-    features = _load_features()
+    features = _load_raw_features()
     window_config = next(item for item in WINDOWS if item["name"] == window)
     metrics_raw, portfolio_returns, _ = run_window_backtest(
         window_config,
