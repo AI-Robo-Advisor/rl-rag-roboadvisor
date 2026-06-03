@@ -117,6 +117,7 @@ def _load_raw_features() -> pd.DataFrame:
     return pd.read_parquet(RAW_FEATURES_PATH)
 
 
+@lru_cache(maxsize=4)
 def _load_window_scaler(window_name: str) -> tuple[pd.Series, pd.Series]:
     """윈도우별 train mean/std 로드 (data/processed/scalers/{window}_feature_stats.json)."""
     path = SCALERS_DIR / f"{window_name}_feature_stats.json"
