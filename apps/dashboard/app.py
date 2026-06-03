@@ -749,7 +749,7 @@ def rl_page() -> None:
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
-            tc = _get("/train_curve", params={"window": window})
+            tc = _get("/train_curve", params={"wf_window": window})
             if tc and tc.get("rewards"):
                 _echarts_line(
                     x=tc["episode_steps"],
