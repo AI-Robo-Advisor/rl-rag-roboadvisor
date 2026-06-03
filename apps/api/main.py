@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from apps.api.routers import backtest, explain, health, optimize, research
+from apps.api.routers import backtest, explain, health, optimize, research, train_curve
 from apps.api.services import warm_runtime_caches
 
 app = FastAPI(
@@ -16,6 +16,7 @@ app.include_router(optimize.router)
 app.include_router(explain.router)
 app.include_router(research.router)
 app.include_router(backtest.router)
+app.include_router(train_curve.router)
 
 warm_runtime_caches()
 

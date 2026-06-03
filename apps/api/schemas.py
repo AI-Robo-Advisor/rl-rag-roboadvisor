@@ -178,6 +178,17 @@ class AnovaResult(BaseModel):
     strategy_effect: StrategyEffectStats | None = None
 
 
+class TrainCurveResponse(BaseModel):
+    """에피소드별 누적 보상 학습 곡선 응답."""
+
+    status: EndpointStatus
+    elapsed_ms: float = 0.0
+    episode_steps: list[int]
+    rewards: list[float]
+    run_name: str
+    message: str
+
+
 class SafeguardState(BaseModel):
     """Safe-Guard runtime state for backtest summaries."""
 
