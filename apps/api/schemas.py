@@ -112,6 +112,14 @@ class ExplainResponse(BaseModel):
     message: str
 
 
+class ExplainDatesResponse(BaseModel):
+    """SHAP 날짜 선택 UI를 위한 거래일·이벤트일 목록."""
+
+    window: BacktestWindow
+    all_trading_dates: list[str]
+    eventful_dates: list[str]
+
+
 class ResearchRequest(BaseModel):
     """RAG research request."""
 
@@ -192,6 +200,7 @@ class BacktestResponse(BaseModel):
     wf_cum: list[float]
     bm_cum: list[float]
     ew_cum: list[float] = Field(default_factory=list)
+    mvo_cum: list[float] = Field(default_factory=list)
     wf_spark: list[float]
     sharpe_spark: list[float]
     drawdown: list[float]
