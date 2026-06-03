@@ -1529,40 +1529,54 @@ TENSORBOARD_LOG_DIR = Path("logs/tensorboard")
 _TB_SCALAR_TAG = "rollout/ep_rew_mean"
 
 
-def build_train_curve_response(window: int | None = None) -> TrainCurveResponse:
+def build_train_curve_response(
+    wf_window: BacktestWindow | None = None,
+    smooth_window: int | None = None,
+) -> TrainCurveResponse:
     """Return per-episode reward curve from TensorBoard logs, or fallback on error."""
     start = perf_counter()
     try:
-        return _read_train_curve(window, start)
+        return _read_train_curve(wf_window, smooth_window, start)
     except Exception:
         return TrainCurveResponse(
             status="fallback",
             elapsed_ms=_elapsed_ms(start),
-            episodes=[],
+            episode_steps=[],
             rewards=[],
             run_name="",
             message="TensorBoard 로그를 읽을 수 없습니다.",
         )
 
 
-def _read_train_curve(window: int | None, start: float) -> TrainCurveResponse:
-    """Read rollout/ep_rew_mean from the most recently modified TensorBoard run."""
+def _read_train_curve(
+    wf_window: BacktestWindow | None,
+    smooth_window: int | None,
+    start: float,
+) -> TrainCurveResponse:
+    """Read rollout/ep_rew_mean from a TensorBoard run filtered by walk-forward window."""
     from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-    run_dirs = sorted(
+    all_run_dirs = sorted(
         TENSORBOARD_LOG_DIR.glob("ppo_*"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    if not run_dirs:
+    if not all_run_dirs:
         return TrainCurveResponse(
             status="fallback",
             elapsed_ms=_elapsed_ms(start),
-            episodes=[],
+            episode_steps=[],
             rewards=[],
             run_name="",
             message="logs/tensorboard/ 에 ppo_* 디렉터리가 없습니다.",
         )
+
+    # wf_window 지정 시 해당 패턴(ppo_*_<window>_*)을 먼저 탐색하고, 없으면 최신 run 사용
+    if wf_window:
+        filtered = [p for p in all_run_dirs if f"_{wf_window}_" in p.name or p.name.endswith(f"_{wf_window}")]
+        run_dirs = filtered if filtered else all_run_dirs
+    else:
+        run_dirs = all_run_dirs
 
     run_dir = run_dirs[0]
     ea = EventAccumulator(str(run_dir), size_guidance={"scalars": 0})
@@ -1573,17 +1587,17 @@ def _read_train_curve(window: int | None, start: float) -> TrainCurveResponse:
         return TrainCurveResponse(
             status="fallback",
             elapsed_ms=_elapsed_ms(start),
-            episodes=[],
+            episode_steps=[],
             rewards=[],
             run_name=run_dir.name,
             message=f"'{_TB_SCALAR_TAG}' 태그가 없습니다 (run: {run_dir.name}).",
         )
 
     raw_values = [float(s.value) for s in ea.Scalars(_TB_SCALAR_TAG)]
-    if window and window > 1:
+    if smooth_window and smooth_window > 1:
         smoothed = (
             pd.Series(raw_values)
-            .rolling(window, min_periods=1)
+            .rolling(smooth_window, min_periods=1)
             .mean()
             .round(6)
             .tolist()
@@ -1594,7 +1608,7 @@ def _read_train_curve(window: int | None, start: float) -> TrainCurveResponse:
     return TrainCurveResponse(
         status="ready",
         elapsed_ms=_elapsed_ms(start),
-        episodes=list(range(1, len(smoothed) + 1)),
+        episode_steps=list(range(1, len(smoothed) + 1)),
         rewards=smoothed,
         run_name=run_dir.name,
         message=f"{run_dir.name} 학습 곡선 ({len(smoothed)}개 데이터 포인트)",

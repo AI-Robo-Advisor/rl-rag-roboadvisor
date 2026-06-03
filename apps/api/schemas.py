@@ -175,7 +175,7 @@ class TrainCurveResponse(BaseModel):
 
     status: EndpointStatus
     elapsed_ms: float = 0.0
-    episodes: list[int]
+    episode_steps: list[int]
     rewards: list[float]
     run_name: str
     message: str
