@@ -644,6 +644,7 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
             triggered_at=None,
             current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
         ),
+        mvo_cum=[],
         message=(f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. " f"(window={window})"),
     )
 
@@ -854,6 +855,19 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     triggered = drawdown_array[drawdown_array <= -0.15]
     anova = [AnovaResult(**item) for item in run_all_anova(returns)]
 
+    try:
+        from src.rl.mvo import run_mvo
+        mvo_returns = run_mvo(
+            returns,
+            window_config["train_start"],
+            window_config["train_end"],
+            window_config["test_start"],
+            window_config["test_end"],
+        )
+        mvo_cum_array = np.exp(mvo_returns.cumsum()) if not mvo_returns.empty else pd.Series(dtype=float)
+    except Exception:
+        mvo_cum_array = pd.Series(dtype=float)
+
     return BacktestResponse(
         status="ready",
         metrics=metrics,
@@ -864,6 +878,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
         wf_cum=_finite_float_list(wf_cum_array),
         bm_cum=_finite_float_list(bm_cum_array),
         ew_cum=_finite_float_list(ew_cum_array),
+        mvo_cum=_finite_float_list(mvo_cum_array),
         wf_spark=_finite_float_list(wf_cum_array.tail(50)),
         sharpe_spark=_rolling_sharpe_spark(portfolio_returns),
         drawdown=_finite_float_list(drawdown_array),

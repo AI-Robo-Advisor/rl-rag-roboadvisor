@@ -192,6 +192,7 @@ class BacktestResponse(BaseModel):
     wf_cum: list[float]
     bm_cum: list[float]
     ew_cum: list[float] = Field(default_factory=list)
+    mvo_cum: list[float] = Field(default_factory=list)
     wf_spark: list[float]
     sharpe_spark: list[float]
     drawdown: list[float]
