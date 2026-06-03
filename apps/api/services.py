@@ -45,7 +45,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
-SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+SHAP_ARTIFACT_PATH = Path("data/results/shap_explanations.json")
 UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
