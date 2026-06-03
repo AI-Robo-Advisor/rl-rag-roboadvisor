@@ -940,30 +940,29 @@ def shap_page() -> None:
         st.markdown("**영향 요인 해석 테이블 (Top-K)**")
         rows = []
         for fc in sd.get("feature_contributions", []):
-            tag = next((ev["tag"] for ev in fc.get("reasoning_context", [])), "")
-            reasoning = next(
-                (ev["reasoning"][:80] for ev in fc.get("reasoning_context", [])), ""
-            )
             rows.append(
                 {
                     "피처": fc["feature"],
                     "값": f"{fc['value']:.4f}",
                     "SHAP": f"{fc['contribution']:+.4f}",
                     "방향": "↑" if fc["contribution"] > 0 else "↓",
-                    "연결 리스크태그": tag,
-                    "reasoning": reasoning,
                 }
             )
         if rows:
             st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         else:
-            reasoning_rows = explain_reasoning_rows(sd)
-            if reasoning_rows:
-                st.dataframe(
-                    pd.DataFrame(reasoning_rows), hide_index=True, use_container_width=True
-                )
-            else:
-                st.caption("해당 날짜 ±3일 이벤트 없음 (정상)")
+            st.caption("feature_contributions 데이터 없음")
+
+    # ±3일 리스크 이벤트 테이블
+    with st.container(border=True):
+        st.markdown("**±3일 리스크 이벤트**")
+        reasoning_rows = explain_reasoning_rows(sd)
+        if reasoning_rows:
+            st.dataframe(
+                pd.DataFrame(reasoning_rows), hide_index=True, use_container_width=True
+            )
+        else:
+            st.caption("해당 날짜 ±3일 이벤트 없음 (정상)")
 
 
 def research_page() -> None:
