@@ -1189,7 +1189,7 @@ def _metrics_from_returns(
 
 
 def _fallback_anova() -> list[AnovaResult]:
-    """Return ANOVA results from data/results/anova_results.json (static fallback)."""
+    """Return hardcoded ANOVA results matching anova_results.json (static fallback)."""
     return [
         AnovaResult(
             name="reward_function_comparison",
