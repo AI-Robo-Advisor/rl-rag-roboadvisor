@@ -287,6 +287,87 @@ def _anova_row_interpretation(effect: str, p_value: float | None) -> str:
     return "계산 결과 확인"
 
 
+def _format_anova_p(p_value: float | None) -> str:
+    if p_value is None:
+        return "—"
+    if p_value < 0.001:
+        return "≈0"
+    return f"{p_value:.4f}"
+
+
+def anova_conclusion_text(anova: dict[str, Any]) -> str:
+    """Build ANOVA interpretation copy from the computed API payload."""
+    name = str(anova.get("name") or "")
+    f_stat = _float_or_none(anova.get("f_statistic")) or 0.0
+    p_val = _float_or_none(anova.get("p_value"))
+    eta = _float_or_none(anova.get("eta_squared"))
+    eta_txt = f"{eta:.4f}" if eta is not None else "—"
+    post_hoc = [row for row in (anova.get("post_hoc") or []) if isinstance(row, dict)]
+
+    if name == "reward_function_comparison":
+        sig = [row for row in post_hoc if row.get("reject")]
+        nonsig = [row for row in post_hoc if not row.get("reject")]
+        header = (
+            f"보상 함수 간 유의한 차이 (F={f_stat:.2f}, p={_format_anova_p(p_val)}, η²={eta_txt})."
+            if _is_significant(p_val)
+            else (
+                f"보상 함수 간 유의한 차이 없음 (F={f_stat:.2f}, "
+                f"p={_format_anova_p(p_val)}, η²={eta_txt})."
+            )
+        )
+        details: list[str] = []
+        for row in sig[:2]:
+            details.append(f"{row.get('group1')} vs {row.get('group2')} 유의")
+        for row in nonsig[:1]:
+            details.append(f"{row.get('group1')} vs {row.get('group2')} 차이 없음")
+        return header + (" · ".join(details) if details else "")
+
+    if name == "strategy_comparison":
+        sig = [row for row in post_hoc if row.get("reject")]
+        nonsig = [row for row in post_hoc if not row.get("reject")]
+        header = (
+            f"전략 간 유의한 차이 (F={f_stat:.2f}, p={_format_anova_p(p_val)}, η²={eta_txt})."
+            if _is_significant(p_val)
+            else (
+                f"전략 간 유의한 차이 없음 (F={f_stat:.2f}, "
+                f"p={_format_anova_p(p_val)}, η²={eta_txt})."
+            )
+        )
+        details = []
+        for row in sig[:2]:
+            details.append(f"{row.get('group1')} vs {row.get('group2')} 유의")
+        for row in nonsig[:1]:
+            details.append(f"{row.get('group1')} vs {row.get('group2')} 차이 없음")
+        return header + (" · ".join(details) if details else "")
+
+    if name == "market_regime_comparison":
+        interaction = anova.get("interaction") if isinstance(anova.get("interaction"), dict) else {}
+        strat = anova.get("strategy_effect") if isinstance(anova.get("strategy_effect"), dict) else {}
+        inter_p = _float_or_none(interaction.get("p_value"))
+        strat_p = _float_or_none(strat.get("p_value"))
+        inter_f = _float_or_none(interaction.get("f_statistic")) or 0.0
+        strat_f = _float_or_none(strat.get("f_statistic")) or 0.0
+        parts = [
+            (
+                f"국면 주효과 {'유의' if _is_significant(p_val) else '비유의'} "
+                f"(F={f_stat:.2f}, p={_format_anova_p(p_val)}, η²={eta_txt})"
+            ),
+            (
+                f"전략 주효과 {'유의' if _is_significant(strat_p) else '비유의'} "
+                f"(F={strat_f:.2f}, p={_format_anova_p(strat_p)})"
+            ),
+            (
+                f"교호작용 {'유의' if _is_significant(inter_p) else '비유의'} "
+                f"(F={inter_f:.2f}, p={_format_anova_p(inter_p)})"
+            ),
+        ]
+        if inter_p is not None and inter_p >= 0.05:
+            parts.append("전략 우위가 국면별로 크게 뒤집히지 않음")
+        return " · ".join(parts)
+
+    return f"F={f_stat:.2f}, p={_format_anova_p(p_val)}"
+
+
 def anova_attainment_cards(anova_list: list[dict[str, Any]] | None) -> list[dict[str, str]]:
     """Summarize whether the ANOVA reporting rubric is satisfied."""
     rows = [item for item in anova_list or [] if isinstance(item, dict)]

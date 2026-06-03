@@ -27,6 +27,7 @@ try:
         calculate_period_return_metrics,
         explain_reasoning_rows,
         anova_attainment_cards,
+        anova_conclusion_text,
         anova_summary_rows,
         extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
@@ -47,6 +48,7 @@ except ModuleNotFoundError:
         calculate_period_return_metrics,
         explain_reasoning_rows,
         anova_attainment_cards,
+        anova_conclusion_text,
         anova_summary_rows,
         extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
@@ -93,22 +95,6 @@ WINDOW_OPTIONS: dict[str, str] = {
     "W3 (2024, AI랠리)": "w3",
     "final (2025, OOS)": "final",
 }
-
-_ANOVA_CONCLUSIONS: dict[str, str] = {
-    "reward_function_comparison": (
-        "PPO-sharpe와 PPO-mdd는 통계적으로 유의미하게 다름 (F=18.04, p≈0). "
-        "PPO-return과 PPO-sharpe는 차이 없음 (p=0.13) → sharpe·return 선택은 성과 차이 없음."
-    ),
-    "strategy_comparison": (
-        "PPO가 MVO·동일가중 대비 유의미하게 우수 (F=57.14, p≈0). "
-        "MVO와 동일가중은 통계적으로 동등 (p=0.97)."
-    ),
-    "market_regime_comparison": (
-        "교호작용 비유의 (p=0.967) — 전략 우위가 시장 국면과 무관하게 일관됨. "
-        "단, 국면 주효과는 유의 (p=0.00067) — 시장 상황 자체가 수익률에 영향을 줌."
-    ),
-}
-
 
 # ─────────────────────────────────────────────
 # API helpers
@@ -1075,6 +1061,9 @@ def anova_page() -> None:
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
 
+    bt_status = bt5.get("status", "unknown")
+    st.caption(f"데이터 출처: GET /backtest (status={bt_status})")
+
     anova_list: list = bt5.get("anova", _mock_backtest()["anova"])
     cards = anova_attainment_cards(anova_list)
     if cards:
@@ -1133,7 +1122,7 @@ def anova_page() -> None:
             else:
                 st.warning("⚠️ 통계적으로 유의한 차이 없음 (p ≥ 0.05)")
 
-            conclusion = _ANOVA_CONCLUSIONS.get(anova.get("name", ""))
+            conclusion = anova_conclusion_text(anova)
             if conclusion:
                 st.info(conclusion)
 
