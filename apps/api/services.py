@@ -1583,3 +1583,34 @@ def _jsonable(value: Any) -> Any:
     if hasattr(value, "dict"):
         return _jsonable(value.dict())
     return str(value)
+
+
+def build_explain_dates(window: BacktestWindow) -> dict[str, Any]:
+    """SHAP 날짜 선택 UI용 거래일 + 이벤트일 목록 반환.
+
+    Args:
+        window: 백테스트 윈도우 키.
+
+    Returns:
+        window, all_trading_dates, eventful_dates 담긴 dict.
+    """
+    start, end = WINDOW_PERIODS[window]
+    try:
+        returns = _load_returns()
+        trading: list[str] = [
+            d.strftime("%Y-%m-%d")
+            for d in returns.loc[start:end].index
+        ]
+    except Exception:
+        trading = []
+
+    events = _load_unified_events()
+    if not events.empty and "date" in events.columns:
+        mask = (events["date"] >= pd.Timestamp(start)) & (events["date"] <= pd.Timestamp(end))
+        eventful: list[str] = sorted(
+            events.loc[mask, "date"].dt.strftime("%Y-%m-%d").dropna().unique().tolist()
+        )
+    else:
+        eventful = []
+
+    return {"window": window, "all_trading_dates": trading, "eventful_dates": eventful}

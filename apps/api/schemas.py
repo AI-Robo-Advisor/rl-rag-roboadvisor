@@ -112,6 +112,14 @@ class ExplainResponse(BaseModel):
     message: str
 
 
+class ExplainDatesResponse(BaseModel):
+    """SHAP 날짜 선택 UI를 위한 거래일·이벤트일 목록."""
+
+    window: BacktestWindow
+    all_trading_dates: list[str]
+    eventful_dates: list[str]
+
+
 class ResearchRequest(BaseModel):
     """RAG research request."""
 
