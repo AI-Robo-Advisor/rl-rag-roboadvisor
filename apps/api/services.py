@@ -46,7 +46,9 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
-SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
+SCALERS_DIR = Path("data/processed/scalers")
+SHAP_ARTIFACT_PATH = Path("data/results/shap_explanations.json")
 UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
@@ -108,6 +110,31 @@ def _load_returns() -> pd.DataFrame:
 def _load_features() -> pd.DataFrame:
     """Load processed features once per API process."""
     return pd.read_parquet(FEATURES_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_raw_features() -> pd.DataFrame:
+    """RL 경로 전용 — walk-forward 정규화 전 raw features."""
+    return pd.read_parquet(RAW_FEATURES_PATH)
+
+
+@lru_cache(maxsize=4)
+def _load_window_scaler(window_name: str) -> tuple[pd.Series, pd.Series]:
+    """윈도우별 train mean/std 로드 (data/processed/scalers/{window}_feature_stats.json)."""
+    path = SCALERS_DIR / f"{window_name}_feature_stats.json"
+    with path.open(encoding="utf-8") as f:
+        stats = json.load(f)
+    return pd.Series(stats["mean"]), pd.Series(stats["std"])
+
+
+def _normalize_with_scaler(raw: pd.DataFrame, window_name: str) -> pd.DataFrame:
+    """window_name train scaler로 raw_features를 Z-score 정규화."""
+    mean, std = _load_window_scaler(window_name)
+    missing = set(raw.columns) - set(mean.index)
+    if missing:
+        raise ValueError(f"Scaler에 없는 피처: {missing}")
+    std_safe = std.replace(0.0, 1e-8)
+    return (raw - mean) / std_safe
 
 
 _UNIFIED_EVENTS_CACHE: tuple[Path, int, pd.DataFrame] | None = None
@@ -622,6 +649,7 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
             triggered_at=None,
             current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
         ),
+        mvo_cum=[],
         message=(f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. " f"(window={window})"),
     )
 
@@ -658,7 +686,7 @@ def _predict_ppo_weights(
 ) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
     returns = _load_returns()
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     missing = [ticker for ticker in tickers if ticker not in returns.columns]
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
@@ -714,6 +742,7 @@ def warm_runtime_caches() -> None:
     try:
         _load_returns()
         _load_features()
+        _load_raw_features()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -724,7 +753,7 @@ def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
     """Compute a bounded SHAP explanation through src.rl.shap."""
     from src.rl.shap import compute_shap_explanation
 
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     returns = _load_returns()
     return compute_shap_explanation(
         model_path=PPO_MODEL_PATH,
@@ -800,7 +829,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     from src.rl.backtest import WINDOWS, run_window_backtest
 
     returns = _load_returns()
-    features = _load_features()
+    features = _load_raw_features()
     window_config = next(item for item in WINDOWS if item["name"] == window)
     metrics_raw, portfolio_returns, _ = run_window_backtest(
         window_config,
@@ -831,6 +860,19 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     triggered = drawdown_array[drawdown_array <= -0.15]
     anova = [AnovaResult(**item) for item in run_all_anova(returns)]
 
+    try:
+        from src.rl.mvo import run_mvo
+        mvo_returns = run_mvo(
+            returns,
+            window_config["train_start"],
+            window_config["train_end"],
+            window_config["test_start"],
+            window_config["test_end"],
+        )
+        mvo_cum_array = np.exp(mvo_returns.cumsum()) if not mvo_returns.empty else pd.Series(dtype=float)
+    except Exception:
+        mvo_cum_array = pd.Series(dtype=float)
+
     return BacktestResponse(
         status="ready",
         metrics=metrics,
@@ -841,6 +883,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
         wf_cum=_finite_float_list(wf_cum_array),
         bm_cum=_finite_float_list(bm_cum_array),
         ew_cum=_finite_float_list(ew_cum_array),
+        mvo_cum=_finite_float_list(mvo_cum_array),
         wf_spark=_finite_float_list(wf_cum_array.tail(50)),
         sharpe_spark=_rolling_sharpe_spark(portfolio_returns),
         drawdown=_finite_float_list(drawdown_array),
@@ -1147,80 +1190,102 @@ def _metrics_from_returns(
 
 
 def _fallback_anova() -> list[AnovaResult]:
-    """Return the three planned ANOVA fallback summaries."""
+    """Return hardcoded ANOVA results matching anova_results.json (static fallback)."""
     return [
         AnovaResult(
             name="reward_function_comparison",
-            f_statistic=3.12,
-            p_value=0.041,
-            eta_squared=0.18,
+            f_statistic=18.040523,
+            p_value=0.0,
+            eta_squared=0.014817,
             post_hoc=[
                 TukeyRow(
-                    group1="PPO-return",
+                    group1="PPO-mdd",
+                    group2="PPO-return",
+                    meandiff=0.0018,
+                    p_adj=0.0002,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO-mdd",
                     group2="PPO-sharpe",
-                    meandiff=0.021,
-                    p_adj=0.032,
+                    meandiff=0.0026,
+                    p_adj=0.0,
                     reject=True,
                 ),
                 TukeyRow(
                     group1="PPO-return",
-                    group2="PPO-mdd",
-                    meandiff=0.009,
-                    p_adj=0.210,
-                    reject=False,
-                ),
-                TukeyRow(
-                    group1="PPO-sharpe",
-                    group2="PPO-mdd",
-                    meandiff=0.012,
-                    p_adj=0.089,
+                    group2="PPO-sharpe",
+                    meandiff=0.0008,
+                    p_adj=0.1322,
                     reject=False,
                 ),
             ],
         ),
         AnovaResult(
             name="strategy_comparison",
-            f_statistic=4.36,
-            p_value=0.028,
-            eta_squared=0.22,
+            f_statistic=57.141498,
+            p_value=0.0,
+            eta_squared=0.040522,
             post_hoc=[
                 TukeyRow(
-                    group1="PPO",
-                    group2="MVO",
-                    meandiff=0.031,
-                    p_adj=0.002,
-                    reject=True,
-                ),
-                TukeyRow(
-                    group1="PPO",
-                    group2="동일비중",
-                    meandiff=0.018,
-                    p_adj=0.041,
+                    group1="MVO",
+                    group2="PPO",
+                    meandiff=0.0032,
+                    p_adj=0.0,
                     reject=True,
                 ),
                 TukeyRow(
                     group1="MVO",
                     group2="동일비중",
-                    meandiff=0.013,
-                    p_adj=0.312,
+                    meandiff=0.0001,
+                    p_adj=0.9741,
                     reject=False,
+                ),
+                TukeyRow(
+                    group1="PPO",
+                    group2="동일비중",
+                    meandiff=-0.0031,
+                    p_adj=0.0,
+                    reject=True,
                 ),
             ],
         ),
         AnovaResult(
             name="market_regime_comparison",
-            f_statistic=2.07,
-            p_value=0.096,
-            eta_squared=0.11,
-            post_hoc=[],
+            f_statistic=7.329351,
+            p_value=0.000673,
+            eta_squared=0.006902,
+            post_hoc=[
+                TukeyRow(
+                    group1="bull",
+                    group2="rate_hike",
+                    meandiff=-0.0012,
+                    p_adj=0.0077,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="bull",
+                    group2="recovery",
+                    meandiff=0.0002,
+                    p_adj=0.8879,
+                    reject=False,
+                ),
+                TukeyRow(
+                    group1="rate_hike",
+                    group2="recovery",
+                    meandiff=0.0014,
+                    p_adj=0.0016,
+                    reject=True,
+                ),
+            ],
             interaction=InteractionStats(
-                f_statistic=3.14,
-                p_value=0.021,
-                significant=True,
+                f_statistic=0.139752,
+                p_value=0.967487,
+                significant=False,
             ),
             strategy_effect=StrategyEffectStats(
-                f_statistic=4.52,
-                p_value=0.011,
+                f_statistic=38.78218,
+                p_value=0.0,
             ),
         ),
     ]
@@ -1599,3 +1664,34 @@ def _read_train_curve(window: int | None, start: float) -> TrainCurveResponse:
         run_name=run_dir.name,
         message=f"{run_dir.name} 학습 곡선 ({len(smoothed)}개 데이터 포인트)",
     )
+
+  
+def build_explain_dates(window: BacktestWindow) -> dict[str, Any]:
+    """SHAP 날짜 선택 UI용 거래일 + 이벤트일 목록 반환.
+
+    Args:
+        window: 백테스트 윈도우 키.
+
+    Returns:
+        window, all_trading_dates, eventful_dates 담긴 dict.
+    """
+    start, end = WINDOW_PERIODS[window]
+    try:
+        returns = _load_returns()
+        trading: list[str] = [
+            d.strftime("%Y-%m-%d")
+            for d in returns.loc[start:end].index
+        ]
+    except Exception:
+        trading = []
+
+    events = _load_unified_events()
+    if not events.empty and "date" in events.columns:
+        mask = (events["date"] >= pd.Timestamp(start)) & (events["date"] <= pd.Timestamp(end))
+        eventful: list[str] = sorted(
+            events.loc[mask, "date"].dt.strftime("%Y-%m-%d").dropna().unique().tolist()
+        )
+    else:
+        eventful = []
+
+    return {"window": window, "all_trading_dates": trading, "eventful_dates": eventful}
