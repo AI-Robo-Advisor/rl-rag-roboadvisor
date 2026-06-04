@@ -356,6 +356,27 @@ def run_all_rewards() -> dict[str, pd.DataFrame]:
     return {reward: run_all_windows(reward) for reward in REWARD_TYPES}
 
 
+def save_backtest_metrics() -> Path:
+    """3종 보상함수 × 4윈도우 전체 실행 후 backtest_metrics.csv 저장.
+
+    Returns:
+        저장된 파일 경로.
+    """
+    results = run_all_rewards()
+    combined = pd.concat(results.values(), ignore_index=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RESULTS_DIR / "backtest_metrics.csv"
+    combined.to_csv(out_path, index=False)
+    logger.info("저장 완료: %s (%d행)", out_path, len(combined))
+    return out_path
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    saved = save_backtest_metrics()
+    print(f"backtest_metrics.csv 재생성 완료: {saved}")
+
+
 def run_stress_test(reward: str = "return") -> dict[str, Any]:
     """2022년 금리 충격 구간(2022-01-01 ~ 2022-12-31) OOS 스트레스 테스트.
 

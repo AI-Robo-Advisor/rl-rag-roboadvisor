@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ try:
         calculate_period_return_metrics,
         explain_reasoning_rows,
         anova_attainment_cards,
+        anova_conclusion_text,
         anova_summary_rows,
         extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
@@ -46,6 +48,7 @@ except ModuleNotFoundError:
         calculate_period_return_metrics,
         explain_reasoning_rows,
         anova_attainment_cards,
+        anova_conclusion_text,
         anova_summary_rows,
         extract_analyst_draft_delta,
         extract_risk_context_from_research_event,
@@ -86,8 +89,12 @@ _PALETTE = [
     "#48b8d0",
 ]
 
-_PERIOD_MONTHS = {"1개월": 21, "3개월": 63, "6개월": 126, "12개월": 252, "전체": None}
-
+WINDOW_OPTIONS: dict[str, str] = {
+    "W1 (2022, 금리충격)": "w1",
+    "W2 (2023, 회복장)": "w2",
+    "W3 (2024, AI랠리)": "w3",
+    "final (2025, OOS)": "final",
+}
 
 # ─────────────────────────────────────────────
 # API helpers
@@ -394,75 +401,80 @@ def _mock_backtest() -> dict:
         "anova": [
             {
                 "name": "reward_function_comparison",
-                "f_statistic": 8.71,
-                "p_value": 0.0002,
-                "eta_squared": 0.142,
+                "f_statistic": 18.040523,
+                "p_value": 0.0,
+                "eta_squared": 0.014817,
                 "post_hoc": [
+                    {
+                        "group1": "PPO-mdd",
+                        "group2": "PPO-return",
+                        "meandiff": 0.0018,
+                        "p_adj": 0.0002,
+                        "reject": True,
+                    },
+                    {
+                        "group1": "PPO-mdd",
+                        "group2": "PPO-sharpe",
+                        "meandiff": 0.0026,
+                        "p_adj": 0.0,
+                        "reject": True,
+                    },
                     {
                         "group1": "PPO-return",
                         "group2": "PPO-sharpe",
-                        "meandiff": 0.0003,
-                        "p_adj": 0.031,
-                        "reject": True,
-                    },
-                    {
-                        "group1": "PPO-return",
-                        "group2": "PPO-mdd",
-                        "meandiff": 0.0005,
-                        "p_adj": 0.004,
-                        "reject": True,
-                    },
-                    {
-                        "group1": "PPO-sharpe",
-                        "group2": "PPO-mdd",
-                        "meandiff": 0.0002,
-                        "p_adj": 0.218,
+                        "meandiff": 0.0008,
+                        "p_adj": 0.1322,
                         "reject": False,
                     },
                 ],
             },
             {
                 "name": "strategy_comparison",
-                "f_statistic": 12.34,
-                "p_value": 0.0003,
-                "eta_squared": 0.187,
+                "f_statistic": 57.141498,
+                "p_value": 0.0,
+                "eta_squared": 0.040522,
                 "post_hoc": [
                     {
-                        "group1": "PPO",
-                        "group2": "MVO",
-                        "meandiff": 0.0008,
-                        "p_adj": 0.002,
-                        "reject": True,
-                    },
-                    {
-                        "group1": "PPO",
-                        "group2": "동일비중",
-                        "meandiff": 0.0006,
-                        "p_adj": 0.041,
+                        "group1": "MVO",
+                        "group2": "PPO",
+                        "meandiff": 0.0032,
+                        "p_adj": 0.0,
                         "reject": True,
                     },
                     {
                         "group1": "MVO",
                         "group2": "동일비중",
-                        "meandiff": 0.0002,
-                        "p_adj": 0.312,
+                        "meandiff": 0.0001,
+                        "p_adj": 0.9741,
                         "reject": False,
+                    },
+                    {
+                        "group1": "PPO",
+                        "group2": "동일비중",
+                        "meandiff": -0.0031,
+                        "p_adj": 0.0,
+                        "reject": True,
                     },
                 ],
             },
             {
                 "name": "market_regime_comparison",
-                "f_statistic": 2.07,
-                "p_value": 0.127,
-                "eta_squared": 0.038,
+                "f_statistic": 7.329351,
+                "p_value": 0.000673,
+                "eta_squared": 0.006902,
                 "post_hoc": [],
-                "interaction": {"f_statistic": 3.14, "p_value": 0.014, "significant": True},
-                "strategy_effect": {"f_statistic": 4.52, "p_value": 0.011},
+                "interaction": {
+                    "f_statistic": 0.139752,
+                    "p_value": 0.967487,
+                    "significant": False,
+                },
+                "strategy_effect": {"f_statistic": 38.78218, "p_value": 0.0},
             },
         ],
         "var_95": metrics["var_95"],
         "cvar_95": metrics["cvar_95"],
         "mdd": metrics["mdd"],
+        "mvo_cum": [],
         "safeguard": {"active": False, "triggered_at": None, "current_drawdown": 0.043},
     }
 
@@ -544,15 +556,7 @@ def portfolio_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 포트폴리오 설정")
-        risk_aversion = st.slider(
-            "위험 회피 계수",
-            min_value=0.5,
-            max_value=5.0,
-            value=1.0,
-            step=0.5,
-            help="값이 클수록 분산 투자 비중 증가",
-        )
-        period: str = st.selectbox("분석 기간", list(_PERIOD_MONTHS.keys()), index=3)
+        st.caption("현재 적용 모델: **PPO-sharpe** / final 윈도우 (학습 2018~2024, 검증 2025)")
 
     st.title("포트폴리오 현황")
     current_risk_tags = st.session_state.get("risk_tags", [])
@@ -573,7 +577,7 @@ def portfolio_page() -> None:
 
     refresh_requested = st.button("최적화 실행", key="btn_optimize")
 
-    current_payload = build_optimize_payload(risk_aversion, current_risk_tags, current_risk_signals)
+    current_payload = build_optimize_payload(1.0, current_risk_tags, current_risk_signals)
     cached_payload = st.session_state.get("portfolio_payload")
     if (
         cached_payload is not None
@@ -583,48 +587,44 @@ def portfolio_page() -> None:
         st.warning("설정이 변경되었습니다. '최적화 실행'을 다시 눌러 결과를 업데이트하세요.")
 
     data = _ensure_portfolio_data(
-        risk_aversion,
+        1.0,
         current_risk_tags,
         current_risk_signals,
         refresh=refresh_requested or "portfolio_data" not in st.session_state,
     )
 
-    # 기간 슬라이싱
-    n = _PERIOD_MONTHS[period]
-    ret = data["returns"]
-    x = ret["date"][-n:] if n else ret["date"]
-    port_vals = ret["portfolio"][-n:] if n else ret["portfolio"]
-    bm_vals = ret["benchmark"][-n:] if n else ret["benchmark"]
-    ew_full = ret.get("equal_weight") or []
-    ew_vals = ew_full[-n:] if (n and ew_full) else ew_full
+    with st.spinner("GET /backtest 호출 중…"):
+        bt_final = _get("/backtest", params={"window": "final"}) or _mock_backtest()
+
+    m = bt_final["metrics"]
+    top_asset = max(data["weights"], key=data["weights"].get)
     data_status = data.get("status", "unknown")
     data_message = data.get("message", "")
     elapsed_ms = float(data.get("elapsed_ms", 0.0) or 0.0)
-    data_start = x[0] if x else "-"
-    data_end = x[-1] if x else "-"
     if data_status == "mock":
         st.error(
             "API 연결 실패로 mock 응답을 표시합니다. 실제 PPO 결과가 아니며, "
             "도커/로컬 API 기동 여부를 확인하세요."
         )
-    st.caption(
-        f"상태: {data_status} | 메시지: {data_message} | 소요 시간: {elapsed_ms:.1f}ms | "
-        f"표시 구간: {data_start} ~ {data_end}"
-    )
-    st.caption(
-        ":material/info: 아래 누적 수익률은 **현재 PPO 가중치 1세트를 과거 구간에 정적으로 적용한 "
-        "시뮬레이션**입니다 (시점별 리밸런싱이 없는 buy-and-hold). "
-        "Walk-Forward 백테스트 결과는 **강화학습 성과** 탭을 참조하세요."
-    )
-
-    cum_ret, excess = calculate_period_return_metrics(port_vals, bm_vals)
-    top_asset = max(data["weights"], key=data["weights"].get)
+    st.caption(f"상태: {data_status} | 메시지: {data_message} | 소요 시간: {elapsed_ms:.1f}ms")
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("누적 수익률", f"{cum_ret:.1%}", border=True)
-    k2.metric("초과 수익", f"{excess:.1%}", delta=f"{excess:.2%} vs SPY", border=True)
-    k3.metric("최대 비중 자산", top_asset, f"{data['weights'][top_asset]:.1%}", border=True)
-    k4.metric("편입 종목 수", f"{len(data['weights'])}개", border=True)
+    k1.metric(
+        "누적 수익률 (OOS)",
+        f"{m['cumulative_return']:.1%}",
+        border=True,
+        chart_data=bt_final.get("wf_spark"),
+        chart_type="area",
+    )
+    k2.metric(
+        "샤프 비율",
+        f"{m['sharpe_ratio']:.2f}",
+        border=True,
+        chart_data=bt_final.get("sharpe_spark"),
+        chart_type="line",
+    )
+    k3.metric("MDD", f"{m['mdd']:.1%}", border=True)
+    k4.metric("최대 비중 자산", top_asset, f"{data['weights'][top_asset]:.1%}", border=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -637,23 +637,25 @@ def portfolio_page() -> None:
             )
     with col2:
         with st.container(border=True):
+            x = bt_final["dates"]
             p_series: list[dict[str, Any]] = [
                 {
-                    "name": "포트폴리오 (PPO)",
+                    "name": "PPO (OOS 2025)",
                     "type": "line",
                     "smooth": True,
                     "areaStyle": {"opacity": 0.15},
-                    "data": port_vals,
+                    "data": bt_final["wf_cum"],
                     "itemStyle": {"color": _PALETTE[0]},
                 },
                 {
                     "name": "벤치마크 (SPY)",
                     "type": "line",
                     "smooth": True,
-                    "data": bm_vals,
+                    "data": bt_final["bm_cum"],
                     "itemStyle": {"color": _PALETTE[3]},
                 },
             ]
+            ew_vals = bt_final.get("ew_cum") or []
             if ew_vals:
                 p_series.append(
                     {
@@ -668,9 +670,18 @@ def portfolio_page() -> None:
             _echarts_line(
                 x=x,
                 series=p_series,
-                title=f"정적 가중치 누적 수익률 ({period})",
+                title="누적 수익률 (OOS 2025, Walk-Forward)",
                 key="p_line",
             )
+
+    sg = bt_final.get("safeguard", {})
+    if sg.get("active"):
+        st.error(f"🔴 Safe-Guard 발동 중 — {sg['triggered_at']} 이후 매매 중단")
+    else:
+        st.success(
+            f"🟢 Safe-Guard 정상 — "
+            f"현재 낙폭 {sg.get('current_drawdown', 0):.1%} (한도 15%)"
+        )
 
     with st.expander("비중 상세 테이블"):
         st.dataframe(
@@ -689,27 +700,19 @@ def rl_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
-        period: str = st.selectbox(
-            "분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="rl_period"
+        window_label: str = st.selectbox(
+            "백테스트 윈도우", list(WINDOW_OPTIONS.keys()), index=3, key="rl_window"
         )
-        strategies: list[str] = st.multiselect(
-            "비교 전략",
-            ["PPO", "벤치마크 (SPY)", "동일비중", "MVO"],
-            default=["PPO", "벤치마크 (SPY)", "동일비중"],
-            help="강화학습 성과 탭에서 비교할 전략",
-        )
+        window = WINDOW_OPTIONS[window_label]
 
     st.title("강화학습 성과")
     with st.spinner("GET /backtest 호출 중…"):
-        bt = _get("/backtest") or _mock_backtest()
+        bt = _get("/backtest", params={"window": window}) or _mock_backtest()
 
-    # 기간 슬라이싱
-    n = _PERIOD_MONTHS[period]
-    dates = bt["dates"][-n:] if n else bt["dates"]
-    wf_cum = bt["wf_cum"][-n:] if n else bt["wf_cum"]
-    bm_cum = bt["bm_cum"][-n:] if n else bt["bm_cum"]
-    ew_cum_full = bt.get("ew_cum") or []
-    ew_cum = ew_cum_full[-n:] if n else ew_cum_full
+    dates = bt["dates"]
+    wf_cum = bt["wf_cum"]
+    bm_cum = bt["bm_cum"]
+    ew_cum = bt.get("ew_cum") or []
 
     m = bt["metrics"]
     c1, c2, c3 = st.columns(3)
@@ -732,86 +735,96 @@ def rl_page() -> None:
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
-            _echarts_line(
-                x=list(range(1, len(bt["rewards"]) + 1)),
-                series=[
-                    {
-                        "name": "누적 보상",
-                        "type": "line",
-                        "smooth": True,
-                        "areaStyle": {"opacity": 0.12},
-                        "data": bt["rewards"],
-                        "itemStyle": {"color": _PALETTE[1]},
-                    }
-                ],
-                title="학습 곡선 (에피소드 누적 보상)",
-                key="rl_reward",
-                legend=False,
-            )
+            tc = _get("/train_curve", params={"wf_window": window})
+            if tc and tc.get("rewards"):
+                _echarts_line(
+                    x=tc["episode_steps"],
+                    series=[
+                        {
+                            "name": "누적 보상",
+                            "type": "line",
+                            "smooth": True,
+                            "areaStyle": {"opacity": 0.12},
+                            "data": tc["rewards"],
+                            "itemStyle": {"color": _PALETTE[1]},
+                        }
+                    ],
+                    title="학습 곡선 (에피소드 누적 보상)",
+                    key="rl_reward",
+                    legend=False,
+                )
+            else:
+                st.info("학습 곡선 준비 중 — /train_curve 엔드포인트 연결 후 표시됩니다.")
     with col2:
         with st.container(border=True):
-            # 비교 전략 필터 적용
-            series_list = []
-            if "PPO" in strategies:
+            mvo_cum = bt.get("mvo_cum", [])
+            series_list: list[dict[str, Any]] = [
+                {
+                    "name": "PPO",
+                    "type": "line",
+                    "smooth": True,
+                    "areaStyle": {"opacity": 0.12},
+                    "data": wf_cum,
+                    "itemStyle": {"color": _PALETTE[0]},
+                },
+                {
+                    "name": "벤치마크 (SPY)",
+                    "type": "line",
+                    "smooth": True,
+                    "data": bm_cum,
+                    "itemStyle": {"color": _PALETTE[3]},
+                },
+                {
+                    "name": "동일가중",
+                    "type": "line",
+                    "smooth": True,
+                    "lineStyle": {"type": "dashed"},
+                    "data": ew_cum,
+                    "itemStyle": {"color": _PALETTE[2]},
+                },
+            ]
+            if mvo_cum:
                 series_list.append(
                     {
-                        "name": "PPO",
-                        "type": "line",
-                        "smooth": True,
-                        "areaStyle": {"opacity": 0.12},
-                        "data": wf_cum,
-                        "itemStyle": {"color": _PALETTE[0]},
-                    }
-                )
-            if "벤치마크 (SPY)" in strategies:
-                series_list.append(
-                    {
-                        "name": "벤치마크 (SPY)",
-                        "type": "line",
-                        "smooth": True,
-                        "data": bm_cum,
-                        "itemStyle": {"color": _PALETTE[3]},
-                    }
-                )
-            if "동일비중" in strategies and ew_cum:
-                series_list.append(
-                    {
-                        "name": "동일비중",
-                        "type": "line",
-                        "smooth": True,
-                        "lineStyle": {"type": "dashed"},
-                        "data": ew_cum,
-                        "itemStyle": {"color": _PALETTE[2]},
-                    }
-                )
-            if "MVO" in strategies:
-                series_list.append(
-                    {
-                        "name": "MVO (mock)",
+                        "name": "MVO",
                         "type": "line",
                         "smooth": True,
                         "lineStyle": {"type": "dotted"},
-                        "data": (np.array(wf_cum) * 0.92).tolist(),
-                        "itemStyle": {"color": _PALETTE[4] if len(_PALETTE) > 4 else _PALETTE[2]},
+                        "data": mvo_cum,
+                        "itemStyle": {"color": _PALETTE[4]},
                     }
                 )
-            if not series_list:
-                st.info("비교 전략을 하나 이상 선택하세요.")
             else:
-                _echarts_line(
-                    x=dates,
-                    series=series_list,
-                    title=f"Walk-Forward 백테스트 ({period})",
-                    key="rl_wf",
-                )
+                st.warning("MVO 실데이터를 불러오지 못했습니다 — /backtest mvo_cum 응답 확인 필요.")
+            _echarts_line(
+                x=dates,
+                series=series_list,
+                title=f"Walk-Forward 백테스트 ({window_label})",
+                key="rl_wf",
+            )
 
     with st.container(border=True):
-        st.markdown("**성과 지표 전체**")
-        st.dataframe(
-            pd.DataFrame([{"지표": k, "값": f"{v:.4f}"} for k, v in m.items()]),
-            hide_index=True,
-            use_container_width=True,
-        )
+        st.markdown("**보상함수별 성과 비교 (PPO-return / PPO-sharpe / PPO-mdd)**")
+        _METRICS_CSV = Path(__file__).parent.parent.parent / "data/results/backtest_metrics.csv"
+        try:
+            metrics_df = pd.read_csv(_METRICS_CSV)
+            tbl = metrics_df[metrics_df["window"] == window][
+                ["reward", "cumulative_return", "sharpe_ratio", "mdd",
+                 "cagr", "annualized_volatility", "sortino_ratio", "calmar_ratio"]
+            ].set_index("reward")
+            st.dataframe(
+                tbl.style
+                    .highlight_max(subset=["cumulative_return", "sharpe_ratio"], color="#d4edda")
+                    .highlight_min(subset=["mdd"], color="#d4edda"),
+                use_container_width=True,
+            )
+        except Exception:
+            st.caption("backtest_metrics.csv 로드 실패 — API 백테스트 단일 성과 표시")
+            st.dataframe(
+                pd.DataFrame([{"지표": k, "값": f"{v:.4f}"} for k, v in m.items()]),
+                hide_index=True,
+                use_container_width=True,
+            )
 
 
 def shap_page() -> None:
@@ -819,14 +832,26 @@ def shap_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/calendar_month: SHAP 설정")
-        target_date = st.date_input(
-            "분석 날짜",
-            value=date.today() - timedelta(days=1),
-            min_value=date(2020, 1, 1),
-            max_value=date.today(),
+        shap_window_label: str = st.selectbox(
+            "윈도우", list(WINDOW_OPTIONS.keys()), index=3, key="shap_win"
         )
+        shap_window = WINDOW_OPTIONS[shap_window_label]
+        dates_resp = _get("/explain/dates", params={"window": shap_window}) or {}
+        all_dates = dates_resp.get("all_trading_dates", [])
+        eventful_dates = set(dates_resp.get("eventful_dates", []))
+        show_eventful_only = st.toggle("이벤트 있는 날짜만", value=False, key="shap_eventful")
+        date_options = [d for d in all_dates if (not show_eventful_only or d in eventful_dates)]
+        if date_options:
+            target_date = st.selectbox("분석 날짜", date_options[::-1], key="shap_date")
+        else:
+            target_date = str(date.today() - timedelta(days=1))
+            st.caption(f"날짜 목록 로드 실패 — {target_date} 사용")
 
     st.title("SHAP 해석")
+    st.caption(
+        "리서치 이벤트가 RL 관측 리스크축에 반영되고, 그 영향이 SHAP로 설명됩니다. "
+        "모델: PPO-sharpe-final | 설명 대상: Value Function V(obs)"
+    )
 
     if st.button("SHAP 분석 실행", key="btn_explain"):
         with st.spinner("POST /explain 호출 중…"):
@@ -840,9 +865,36 @@ def shap_page() -> None:
         sd["base_value"],
         sd["prediction"],
     )
-    st.markdown(
-        f"분석 날짜: **{target_date}** | 기준값: **`{base:.4f}`** → 예측값: **`{pred:.4f}`**"
-    )
+
+    # 설명 요약 카드
+    if sd.get("target_date") or target_date:
+        with st.container(border=True):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(f"**분석 날짜**: {sd.get('target_date', target_date)}")
+                st.markdown(f"base_value `{base:.4f}` → prediction `{pred:.4f}`")
+                pos_feats = sorted(
+                    [(f, v) for f, v in zip(feat, vals) if v > 0], key=lambda x: -x[1]
+                )[:3]
+                neg_feats = sorted(
+                    [(f, v) for f, v in zip(feat, vals) if v < 0], key=lambda x: x[1]
+                )[:3]
+                if pos_feats:
+                    st.caption(f"상위 양(+) 피처: {', '.join(f for f, _ in pos_feats)}")
+                if neg_feats:
+                    st.caption(f"상위 음(-) 피처: {', '.join(f for f, _ in neg_feats)}")
+            with col_b:
+                ctx = sd.get("reasoning_context", [])
+                if ctx:
+                    st.markdown("**±3일 이벤트 컨텍스트**")
+                    for ev in ctx[:3]:
+                        badge = "🔴" if ev.get("decayed_score", 0) > 0.5 else "🟡"
+                        st.caption(
+                            f"{badge} {ev.get('event_date', '')} "
+                            f"[{ev.get('tag', '')}] {ev.get('reasoning', '')[:60]}..."
+                        )
+                else:
+                    st.caption("해당 날짜 ±3일 이벤트 없음 (정상)")
 
     shap_df = pd.DataFrame({"피처": feat, "SHAP값": vals}).sort_values("SHAP값")
 
@@ -869,13 +921,34 @@ def shap_page() -> None:
                 key="shap_force",
             )
 
-    reasoning_rows = explain_reasoning_rows(sd)
+    # Top-K 해석 테이블
     with st.container(border=True):
-        st.markdown("**Reasoning Context**")
-        if reasoning_rows:
-            st.dataframe(pd.DataFrame(reasoning_rows), hide_index=True, use_container_width=True)
+        st.markdown("**영향 요인 해석 테이블 (Top-K)**")
+        rows = []
+        for fc in sd.get("feature_contributions", []):
+            rows.append(
+                {
+                    "피처": fc["feature"],
+                    "값": f"{fc['value']:.4f}",
+                    "SHAP": f"{fc['contribution']:+.4f}",
+                    "방향": "↑" if fc["contribution"] > 0 else "↓",
+                }
+            )
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         else:
-            st.caption("해당 분석 날짜와 top SHAP 피처에 연결된 reasoning context가 없습니다.")
+            st.caption("feature_contributions 데이터 없음")
+
+    # ±3일 리스크 이벤트 테이블
+    with st.container(border=True):
+        st.markdown("**±3일 리스크 이벤트**")
+        reasoning_rows = explain_reasoning_rows(sd)
+        if reasoning_rows:
+            st.dataframe(
+                pd.DataFrame(reasoning_rows), hide_index=True, use_container_width=True
+            )
+        else:
+            st.caption("해당 날짜 ±3일 이벤트 없음 (정상)")
 
 
 def research_page() -> None:
@@ -988,6 +1061,9 @@ def anova_page() -> None:
     with st.spinner("GET /backtest 호출 중…"):
         bt5 = _get("/backtest") or _mock_backtest()
 
+    bt_status = bt5.get("status", "unknown")
+    st.caption(f"데이터 출처: GET /backtest (status={bt_status})")
+
     anova_list: list = bt5.get("anova", _mock_backtest()["anova"])
     cards = anova_attainment_cards(anova_list)
     if cards:
@@ -1022,14 +1098,33 @@ def anova_page() -> None:
         with tab:
             st.caption(_EXP_PURPOSES.get(anova.get("name", ""), "목적: 계산된 ANOVA 결과를 확인합니다."))
             a1, a2, a3 = st.columns(3)
-            a1.metric("F 통계량", f"{anova.get('f_statistic', 0):.2f}", border=True)
-            a2.metric("p-value", f"{anova.get('p_value', 1):.4f}", border=True)
-            a3.metric("η² (효과 크기)", f"{anova.get('eta_squared', 0):.3f}", border=True)
+            a1.metric(
+                "F 통계량",
+                f"{anova.get('f_statistic', 0):.2f}",
+                help="집단 간 분산 / 집단 내 분산 비율. 클수록 집단 간 차이가 큼.",
+                border=True,
+            )
+            a2.metric(
+                "p-value",
+                f"{anova.get('p_value', 1):.4f}",
+                help="귀무가설(집단 간 차이 없음) 하 이 F값이 나올 확률. < 0.05 = 통계적 유의.",
+                border=True,
+            )
+            a3.metric(
+                "η² (효과 크기)",
+                f"{anova.get('eta_squared', 0):.3f}",
+                help="전체 변동 중 집단 요인이 설명하는 비율. 금융 데이터는 η²=0.04도 중효과.",
+                border=True,
+            )
 
             if anova.get("p_value", 1) < 0.05:
                 st.success("✅ 집단 간 성과 차이가 통계적으로 유의합니다 (p < 0.05)")
             else:
                 st.warning("⚠️ 통계적으로 유의한 차이 없음 (p ≥ 0.05)")
+
+            conclusion = anova_conclusion_text(anova)
+            if conclusion:
+                st.info(conclusion)
 
             # Two-way 교호작용 표시 (검증 3 전용)
             interaction = anova.get("interaction")
@@ -1065,28 +1160,62 @@ def anova_page() -> None:
 
                 if posthoc:
                     ph = pd.DataFrame(posthoc)
-                    ph["유의여부"] = ph["reject"].map({True: "✅", False: "—"})
-                    ph["p_adj"] = ph["p_adj"].map("{:.4f}".format)
+                    ph["유의여부"] = ph["p_adj"].apply(
+                        lambda p: "✅ p<0.001" if p < 0.001
+                        else ("✅ p<0.05" if p < 0.05 else f"— p={p:.3f}")
+                    )
+                    display_cols = ["group1", "group2"]
+                    rename_map = {"group1": "집단 A", "group2": "집단 B"}
+                    if "meandiff" in ph.columns:
+                        display_cols.append("meandiff")
+                        rename_map["meandiff"] = "평균차"
+                    display_cols.extend(["p_adj", "유의여부"])
+                    rename_map["p_adj"] = "p-adj"
+                    ph_view = ph[display_cols].rename(columns=rename_map).copy()
+                    if "평균차" in ph_view.columns:
+                        ph_view["평균차"] = ph_view["평균차"].map("{:+.4f}".format)
+                    ph_view["p-adj"] = ph_view["p-adj"].map("{:.4f}".format)
                     st.dataframe(
-                        ph[["group1", "group2", "p_adj", "유의여부"]].rename(
-                            columns={"group1": "집단 A", "group2": "집단 B", "p_adj": "p-adj"}
-                        ),
+                        ph_view,
                         hide_index=True,
                         use_container_width=True,
                     )
+
+                    if "meandiff" in ph.columns:
+                        bar_names = [
+                            f"{r['group1']} vs {r['group2']}" for r in posthoc
+                        ]
+                        bar_vals = [float(r["meandiff"]) for r in posthoc]
+                        bar_colors = [
+                            _PALETTE[1] if r.get("reject") else _PALETTE[7]
+                            for r in posthoc
+                        ]
+                        _echarts_bar_h(
+                            names=bar_names,
+                            values=bar_vals,
+                            colors=bar_colors,
+                            title="집단 평균차 (초록=유의, 회색=비유의)",
+                            key=f"posthoc_bar_{anova.get('name', '')}",
+                        )
                 else:
                     st.info(
                         "사후 검정 결과 없음 (p ≥ 0.05 또는 왼쪽 사이드바에서 전략을 선택하세요)."
                     )
+
+    with st.expander("ANOVA 설계 한계 및 해석 주의사항"):
+        st.caption(
+            "본 ANOVA는 backtest_metrics.csv 연간 요약값 기반으로 그룹당 n=4입니다. "
+            "Walk-Forward 특성상 각 윈도우가 다른 모델이므로 국면 효과와 모델 효과를 "
+            "완전히 분리하기 어렵습니다. "
+            "보고서 §ANOVA 섹션에도 동일한 한계를 명시해야 합니다."
+        )
 
 
 def risk_page() -> None:
     with st.sidebar:
         st.divider()
         st.subheader(":material/tune: 분석 설정")
-        period: str = st.selectbox(
-            "분석 기간", list(_PERIOD_MONTHS.keys()), index=3, key="risk_period"
-        )
+        st.caption("백테스트 기준: final 윈도우 (2025, OOS) 고정")
 
     st.title("리스크 모니터링")
     current_risk_tags = st.session_state.get("risk_tags", [])
@@ -1099,19 +1228,23 @@ def risk_page() -> None:
         col.metric(tag, f"{value:.2f}", border=True)
     st.caption(f"관측 벡터 순서 {RL_RISK_TAGS}: {risk_vector}")
 
-    with st.spinner("GET /backtest 호출 중…"):
-        bt6 = _get("/backtest") or _mock_backtest()
+    st.divider()
+    st.subheader("백테스트 기반 리스크 지표 (final 윈도우, 2025)")
 
-    # 기간 슬라이싱
-    n = _PERIOD_MONTHS[period]
-    dates = bt6["dates"][-n:] if n else bt6["dates"]
-    drawdown = bt6["drawdown"][-n:] if n else bt6["drawdown"]
+    with st.spinner("GET /backtest 호출 중…"):
+        bt6 = _get("/backtest", params={"window": "final"}) or _mock_backtest()
+
+    dates = bt6["dates"]
+    drawdown = bt6["drawdown"]
 
     sg = bt6.get("safeguard", {})
     if sg.get("active"):
         st.error(f"🔴 Safe-Guard 발동 중 — {sg['triggered_at']} 이후 매매 중단")
     else:
-        st.success(f"🟢 Safe-Guard 정상 — 현재 낙폭 {sg.get('current_drawdown', 0):.1%}")
+        st.success(
+            f"🟢 Safe-Guard 정상 — final 백테스트 기준 낙폭 "
+            f"{sg.get('current_drawdown', 0):.1%} (한도 15%)"
+        )
 
     g1, g2, g3 = st.columns(3)
     with g1:
@@ -1138,7 +1271,7 @@ def risk_page() -> None:
                     "data": drawdown,
                 }
             ],
-            title=f"MDD 추이 ({period})",
+            title="MDD 추이 (final 윈도우, 2025 OOS)",
             y_formatter=JsCode("function(v){return (v*100).toFixed(1)+'%'}"),
             key="r_drawdown",
         )

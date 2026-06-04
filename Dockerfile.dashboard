@@ -11,6 +11,7 @@ COPY requirements-dashboard.txt .
 RUN pip install --no-cache-dir -r requirements-dashboard.txt
 
 COPY apps/dashboard/ apps/dashboard/
+COPY data/results/backtest_metrics.csv data/results/backtest_metrics.csv
 
 EXPOSE 8501
 

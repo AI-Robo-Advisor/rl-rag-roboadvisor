@@ -8,6 +8,7 @@ import requests
 
 from apps.dashboard.api_client import (
     anova_attainment_cards,
+    anova_conclusion_text,
     anova_summary_rows,
     build_optimize_payload,
     calculate_period_return_metrics,
@@ -357,6 +358,36 @@ def test_anova_summary_rows_flattens_computed_values_without_fixed_outcomes() ->
             "해석": "전략 우위 일관성 확인",
         },
     ]
+
+
+def test_anova_conclusion_text_uses_computed_values_not_hardcoded() -> None:
+    """ANOVA conclusion copy should reflect the payload F/p values."""
+    text = anova_conclusion_text(
+        {
+            "name": "strategy_comparison",
+            "f_statistic": 0.03,
+            "p_value": 0.9666,
+            "eta_squared": 0.0,
+            "post_hoc": [],
+        }
+    )
+    assert "0.03" in text
+    assert "0.9666" in text
+    assert "57.14" not in text
+
+    sig_text = anova_conclusion_text(
+        {
+            "name": "strategy_comparison",
+            "f_statistic": 57.14,
+            "p_value": 0.0,
+            "eta_squared": 0.04,
+            "post_hoc": [
+                {"group1": "PPO", "group2": "MVO", "reject": True},
+            ],
+        }
+    )
+    assert "57.14" in sig_text
+    assert "PPO vs MVO 유의" in sig_text
 
 
 def test_anova_attainment_cards_reflect_rubric_from_computed_values() -> None:

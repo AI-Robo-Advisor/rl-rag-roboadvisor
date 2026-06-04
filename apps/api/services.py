@@ -49,6 +49,7 @@ FEATURES_PATH = Path("data/processed/features.parquet")
 RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
 SCALERS_DIR = Path("data/processed/scalers")
 SHAP_ARTIFACT_PATH = Path("data/results/shap_explanations.json")
+ANOVA_RESULTS_PATH = Path("data/results/anova_results.json")
 UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
@@ -627,7 +628,7 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
     metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload(
         window
     )
-    anova = _fallback_anova()
+    anova = _resolve_anova_results(_load_returns()) if _can_load_data_files() else _fallback_anova()
     current_mdd = float(metrics.get("mdd", 0.0))
     return BacktestResponse(
         status="fallback",
@@ -783,49 +784,118 @@ def _compute_ready_shap_cached(date: str | None, top_k: int) -> dict[str, Any]:
 
 
 @lru_cache(maxsize=1)
-def _load_shap_artifact() -> dict[str, Any] | None:
-    """Load precomputed SHAP explanations when an artifact is available."""
+def _load_shap_artifact_explanations() -> list[dict[str, Any]] | None:
+    """Load precomputed SHAP explanations (dict or array JSON artifact)."""
     if not SHAP_ARTIFACT_PATH.exists():
         return None
-    with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
-        artifact = json.load(fp)
-    return artifact if isinstance(artifact, dict) else None
+    try:
+        with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
+            artifact = json.load(fp)
+    except Exception:
+        return None
+
+    if isinstance(artifact, list):
+        return [item for item in artifact if isinstance(item, dict)]
+    if isinstance(artifact, dict):
+        explanations = artifact.get("explanations")
+        if isinstance(explanations, list):
+            return [item for item in explanations if isinstance(item, dict)]
+    return None
 
 
 def _shap_from_artifact(date: str | None, top_k: int) -> dict[str, Any] | None:
     """Return a ready SHAP payload from a precomputed artifact."""
-    artifact = _load_shap_artifact()
-    if not artifact:
+    explanations = _load_shap_artifact_explanations()
+    if not explanations:
         return None
 
-    explanations = artifact.get("explanations")
-    if not isinstance(explanations, list) or not explanations:
-        return None
+    target = str(date or "")
+    if target:
+        try:
+            pd.Timestamp(target)
+        except (ValueError, TypeError):
+            return None
+    selected: dict[str, Any] | None = None
+    if target:
+        exact = [
+            item
+            for item in explanations
+            if str(item.get("target_date") or item.get("date")) == target
+        ]
+        if exact:
+            selected = exact[0]
+        else:
+            candidates = [
+                item
+                for item in explanations
+                if str(item.get("target_date") or item.get("date")) <= target
+            ]
+            selected = candidates[-1] if candidates else None
+    if selected is None:
+        selected = explanations[-1]
 
-    target = date or str(artifact.get("latest_date") or "")
-    candidates = [
-        item for item in explanations if isinstance(item, dict) and str(item.get("date")) <= target
-    ]
-    selected = candidates[-1] if candidates else explanations[-1]
     contributions = list(selected.get("feature_contributions", []))[:top_k]
     if not contributions:
         return None
 
+    target_date = selected.get("target_date") or selected.get("date")
     return {
         "date": date,
-        "target_date": selected.get("date"),
+        "target_date": target_date,
         "base_value": selected.get("base_value", 0.0),
         "prediction": selected.get("prediction", 0.0),
         "feature_contributions": contributions,
         "feature_names": [item.get("feature", "") for item in contributions],
         "shap_values": [item.get("contribution", 0.0) for item in contributions],
+        "reasoning_context": selected.get("reasoning_context"),
         "message": "사전 계산된 SHAP artifact 기반 해석입니다.",
     }
 
 
+def _load_anova_from_artifact() -> list[dict[str, Any]] | None:
+    """Load precomputed ANOVA results from data/results/anova_results.json."""
+    if not ANOVA_RESULTS_PATH.exists():
+        return None
+    try:
+        payload = json.loads(ANOVA_RESULTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, list) and payload:
+        return [item for item in payload if isinstance(item, dict)]
+    return None
+
+
+def _anova_results_look_degenerate(results: list[dict[str, Any]]) -> bool:
+    """True when live one-way ANOVA looks like equal-weight fallback (F≈0, p≈1)."""
+    by_name = {str(item.get("name")): item for item in results}
+    for key in ("reward_function_comparison", "strategy_comparison"):
+        item = by_name.get(key)
+        if not item:
+            continue
+        f_stat = float(item.get("f_statistic") or 0.0)
+        p_val = float(item.get("p_value") or 1.0)
+        if f_stat <= 0.0 and p_val >= 0.99:
+            return True
+    return False
+
+
+def _resolve_anova_results(returns: pd.DataFrame) -> list[AnovaResult]:
+    """Prefer live ANOVA; fall back to artifact JSON when live output is degenerate."""
+    from src.rl.anova import run_all_anova
+
+    live = run_all_anova(returns)
+    if not _anova_results_look_degenerate(live):
+        return [AnovaResult(**item) for item in live]
+
+    artifact = _load_anova_from_artifact()
+    if artifact:
+        return [AnovaResult(**item) for item in artifact]
+
+    return _fallback_anova()
+
+
 def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     """Build BacktestResponse from implemented RL backtest and ANOVA modules."""
-    from src.rl.anova import run_all_anova
     from src.rl.backtest import WINDOWS, run_window_backtest
 
     returns = _load_returns()
@@ -858,7 +928,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     )
     current_mdd = abs(float(drawdown_array.min())) if len(drawdown_array) else 0.0
     triggered = drawdown_array[drawdown_array <= -0.15]
-    anova = [AnovaResult(**item) for item in run_all_anova(returns)]
+    anova = _resolve_anova_results(returns)
 
     try:
         from src.rl.mvo import run_mvo
