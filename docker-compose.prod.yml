@@ -20,6 +20,7 @@ services:
       - "8000:8000"
     volumes:
       - chroma_data:/app/chroma_db
+      - /opt/roboadvisor/logs/tensorboard:/app/logs/tensorboard:ro
     restart: unless-stopped
 
   dashboard:
