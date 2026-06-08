@@ -1,0 +1,21 @@
+name: ChromaDB Daily Refresh
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 KST 09:00 (UTC 00:00)
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run news collector on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            cd /opt/roboadvisor
+            docker compose -f docker-compose.prod.yml run --rm collector
