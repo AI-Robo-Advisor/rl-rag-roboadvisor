@@ -14,9 +14,11 @@ COPY apps/ apps/
 COPY src/ src/
 COPY data/ data/
 COPY models/ models/
-COPY chroma_db/ chroma_db/
 COPY logs/ logs/
 COPY config.py .
+
+# chroma_db is volume-mounted at runtime
+RUN mkdir -p /app/chroma_db
 
 EXPOSE 8000
 
