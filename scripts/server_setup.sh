@@ -1,33 +1,29 @@
 #!/usr/bin/env bash
-# One-time setup for AWS Lightsail Ubuntu 22.04.
-# Run as: ssh -i <key.pem> ubuntu@<SERVER-IP> 'bash -s' < scripts/server_setup.sh
+# One-time setup for AWS Lightsail Amazon Linux 2023.
+# Run as: ssh -i <key.pem> ec2-user@<SERVER-IP> 'bash -s' < scripts/server_setup.sh
 # After running, manually create /opt/roboadvisor/.env (see comments below).
 
 set -euo pipefail
 
 echo "=== Installing Docker ==="
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo dnf update -y
+sudo dnf install -y docker
 
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+sudo systemctl start docker
+sudo systemctl enable docker
 
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "=== Installing Docker Compose plugin ==="
+mkdir -p ~/.docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
+  -o ~/.docker/cli-plugins/docker-compose
+chmod +x ~/.docker/cli-plugins/docker-compose
 
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-echo "=== Adding ubuntu user to docker group ==="
-sudo usermod -aG docker ubuntu
+echo "=== Adding ec2-user to docker group ==="
+sudo usermod -aG docker ec2-user
 
 echo "=== Creating project directory ==="
 sudo mkdir -p /opt/roboadvisor
-sudo chown ubuntu:ubuntu /opt/roboadvisor
+sudo chown ec2-user:ec2-user /opt/roboadvisor
 
 echo ""
 echo "=== NEXT: create /opt/roboadvisor/.env with these values ==="
