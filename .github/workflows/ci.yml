@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-local.txt
+
+      - name: Run tests (non-integration)
+        env:
+          OPENAI_API_KEY: "dummy-ci-key"
+          BOK_API_KEY: ""
+          CHROMA_PERSIST_DIR: "/tmp/chroma_ci"
+          API_BASE_URL: "http://localhost:8000"
+          PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: "python"
+        run: pytest tests/ -v -m "not integration" --tb=short
