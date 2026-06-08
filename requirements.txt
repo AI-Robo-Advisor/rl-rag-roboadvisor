@@ -49,3 +49,5 @@ streamlit-echarts~=0.6.0
 
 # 거래일 캘린더 (market_close.py)
 pandas_market_calendars>=4.4
+
+protobuf==3.20.3

@@ -18,3 +18,4 @@ Dockerfile.*
 docs
 data/raw
 data/results
+!data/results/backtest_metrics.csv

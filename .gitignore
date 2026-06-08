@@ -32,6 +32,7 @@ build/
 *.log
 # TensorBoard event 파일은 용량이 커서 추적 제외 (학습 곡선은 monitor.csv 기준)
 logs/tensorboard/
+!logs/tensorboard/.gitkeep
 
 # Streamlit cache
 .streamlit/
@@ -48,6 +49,12 @@ gdelt.json
 
 # 로컬 전용 모델 파일 (git 추적 제외)
 models/ppo_return_50k.zip
+tensorboard_logs.tar.gz
 
 # 분석 산출물 로컬 백업 (재현 가능하므로 git 추적 제외)
 data/results_backup_*/
+
+
+uu_study.md
+docs/프론트엔드전달문서.md
+docs/수정계획.md

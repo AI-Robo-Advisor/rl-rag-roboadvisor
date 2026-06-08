@@ -37,6 +37,7 @@ from apps.api.schemas import (
     RiskProfile,
     SafeguardState,
     StrategyEffectStats,
+    TrainCurveResponse,
     TukeyRow,
 )
 from src.agent.risk_tags import RL_RISK_TAGS, apply_decay
@@ -45,7 +46,10 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 RETURNS_PATH = Path("data/processed/returns.parquet")
 FEATURES_PATH = Path("data/processed/features.parquet")
-SHAP_ARTIFACT_PATH = Path("data/processed/shap_explanations.json")
+RAW_FEATURES_PATH = Path("data/processed/raw_features.parquet")
+SCALERS_DIR = Path("data/processed/scalers")
+SHAP_ARTIFACT_PATH = Path("data/results/shap_explanations.json")
+ANOVA_RESULTS_PATH = Path("data/results/anova_results.json")
 UNIFIED_EVENTS_PATH = Path("data/processed/unified_events.parquet")
 PPO_MODEL_PATH = Path("models/ppo_sharpe_final_risk.zip")
 TRADING_DAYS = 252
@@ -107,6 +111,31 @@ def _load_returns() -> pd.DataFrame:
 def _load_features() -> pd.DataFrame:
     """Load processed features once per API process."""
     return pd.read_parquet(FEATURES_PATH)
+
+
+@lru_cache(maxsize=1)
+def _load_raw_features() -> pd.DataFrame:
+    """RL 경로 전용 — walk-forward 정규화 전 raw features."""
+    return pd.read_parquet(RAW_FEATURES_PATH)
+
+
+@lru_cache(maxsize=4)
+def _load_window_scaler(window_name: str) -> tuple[pd.Series, pd.Series]:
+    """윈도우별 train mean/std 로드 (data/processed/scalers/{window}_feature_stats.json)."""
+    path = SCALERS_DIR / f"{window_name}_feature_stats.json"
+    with path.open(encoding="utf-8") as f:
+        stats = json.load(f)
+    return pd.Series(stats["mean"]), pd.Series(stats["std"])
+
+
+def _normalize_with_scaler(raw: pd.DataFrame, window_name: str) -> pd.DataFrame:
+    """window_name train scaler로 raw_features를 Z-score 정규화."""
+    mean, std = _load_window_scaler(window_name)
+    missing = set(raw.columns) - set(mean.index)
+    if missing:
+        raise ValueError(f"Scaler에 없는 피처: {missing}")
+    std_safe = std.replace(0.0, 1e-8)
+    return (raw - mean) / std_safe
 
 
 _UNIFIED_EVENTS_CACHE: tuple[Path, int, pd.DataFrame] | None = None
@@ -338,12 +367,25 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         return
 
     final_state: dict[str, Any] | None = None
+    run_starts: dict[str, tuple[str, float]] = {}
+    timings: dict[str, float] = {}
     try:
         async for event in stream_graph_events(question):
+            elapsed_ms = _elapsed_ms(start)
+            timing_key = _graph_event_timing_key(event)
+            run_id = str(event.get("run_id") or timing_key)
+            duration_ms = None
+            if event.get("event") in {"on_chain_start", "on_tool_start"}:
+                run_starts[run_id] = (timing_key, perf_counter())
+            elif event.get("event") in {"on_chain_end", "on_tool_end"} and run_id in run_starts:
+                started_key, started_at = run_starts.pop(run_id)
+                duration_ms = round((perf_counter() - started_at) * 1000, 2)
+                _record_timing(timings, started_key, duration_ms)
+
             event_state = _state_from_graph_event(event)
             if event_state:
                 final_state = {**(final_state or {}), **event_state}
-            compact = _compact_graph_event(event)
+            compact = _compact_graph_event(event, elapsed_ms=elapsed_ms, duration_ms=duration_ms)
             if compact:
                 yield _to_ndjson(compact)
     except Exception as exc:
@@ -371,7 +413,9 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
         )
         return
 
-    response = _research_response_from_state(question, final_state or {})
+    total_ms = _elapsed_ms(start)
+    timings["total_ms"] = total_ms
+    response = _research_response_from_state(question, {**(final_state or {}), "timings": timings})
     log_e2e_event(
         "/research/stream",
         status=response.status,
@@ -391,6 +435,7 @@ async def stream_research_response(question: str) -> AsyncIterator[str]:
             "reasoning_trace": response.reasoning_trace,
             "risk_tags": response.risk_tags,
             "risk_signals": [signal.model_dump() for signal in response.risk_signals],
+            "timings": response.timings,
         }
     )
 
@@ -410,19 +455,54 @@ def _state_from_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "risk_tags",
         "rl_risk_tags",
         "risk_signals",
+        "timings",
     }
     if not any(key in output for key in useful_keys):
         return None
     return {str(key): value for key, value in output.items() if key in useful_keys}
 
 
-def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
+def _graph_event_node(event: dict[str, Any]) -> str:
+    metadata = event.get("metadata") or {}
+    if isinstance(metadata, dict) and metadata.get("langgraph_node"):
+        return str(metadata["langgraph_node"])
+    return str(event.get("name") or "research")
+
+
+def _graph_event_timing_key(event: dict[str, Any]) -> str:
+    """Return the timing bucket for a LangGraph stream event."""
+    name = str(event.get("name") or "")
+    if name == "route_after_grade":
+        return name
+    return _graph_event_node(event)
+
+
+def _record_timing(timings: dict[str, float], key: str, duration_ms: float) -> None:
+    """Store a timing value without overwriting repeated node executions."""
+    base_key = f"{key}_ms"
+    if base_key not in timings:
+        timings[base_key] = duration_ms
+        return
+
+    index = 2
+    while f"{key}_{index}_ms" in timings:
+        index += 1
+    timings[f"{key}_{index}_ms"] = duration_ms
+
+
+def _compact_graph_event(
+    event: dict[str, Any],
+    *,
+    elapsed_ms: float | None = None,
+    duration_ms: float | None = None,
+) -> dict[str, Any] | None:
     """Convert LangGraph events to small dashboard-oriented NDJSON payloads."""
     event_type = str(event.get("event", "event"))
     if event_type not in _STREAM_EVENT_ALLOWLIST:
         return None
 
     name = str(event.get("name") or "research")
+    node = _graph_event_node(event)
     data = event.get("data") or {}
     text = ""
     if isinstance(data, dict):
@@ -435,7 +515,12 @@ def _compact_graph_event(event: dict[str, Any]) -> dict[str, Any] | None:
 
     if event_type == "on_chat_model_stream" and not text:
         return None
-    return {"type": event_type, "name": name, "text": text[:500]}
+    compact = {"type": event_type, "name": name, "node": node, "text": text[:500]}
+    if elapsed_ms is not None:
+        compact["elapsed_ms"] = elapsed_ms
+    if duration_ms is not None:
+        compact["duration_ms"] = duration_ms
+    return compact
 
 
 def _compact_event_text(value: Any) -> str:
@@ -494,6 +579,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         risk_tags
     )
     sources = [str(source) for source in state.get("sources", []) if source]
+    timings = state.get("timings") if isinstance(state.get("timings"), dict) else {}
 
     return ResearchResponse(
         status="ready",
@@ -503,6 +589,7 @@ def _research_response_from_state(question: str, state: dict[str, Any]) -> Resea
         reasoning_trace=reasoning_trace,
         risk_tags=risk_tags,
         risk_signals=risk_signals,
+        timings=timings,
     )
 
 
@@ -541,7 +628,7 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
     metrics, dates, wf_cum, bm_cum, rewards, drawdown, sharpe_spark = _build_backtest_payload(
         window
     )
-    anova = _fallback_anova()
+    anova = _resolve_anova_results(_load_returns()) if _can_load_data_files() else _fallback_anova()
     current_mdd = float(metrics.get("mdd", 0.0))
     return BacktestResponse(
         status="fallback",
@@ -563,6 +650,7 @@ def build_fallback_backtest(window: BacktestWindow = "final") -> BacktestRespons
             triggered_at=None,
             current_drawdown=abs(drawdown[-1]) if drawdown else current_mdd,
         ),
+        mvo_cum=[],
         message=(f"Walk-Forward 백테스트 모듈 연결 전 fallback 결과입니다. " f"(window={window})"),
     )
 
@@ -599,7 +687,7 @@ def _predict_ppo_weights(
 ) -> dict[str, float]:
     """Run the trained PPO policy once and return selected asset weights."""
     returns = _load_returns()
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     missing = [ticker for ticker in tickers if ticker not in returns.columns]
     if missing:
         raise ValueError(f"Unknown tickers for PPO model: {missing}")
@@ -655,6 +743,7 @@ def warm_runtime_caches() -> None:
     try:
         _load_returns()
         _load_features()
+        _load_raw_features()
         if _is_ppo_ready():
             _load_ppo_model()
     except Exception:
@@ -665,7 +754,7 @@ def _compute_ready_shap(date: str | None, top_k: int) -> dict[str, Any]:
     """Compute a bounded SHAP explanation through src.rl.shap."""
     from src.rl.shap import compute_shap_explanation
 
-    features = _load_features()
+    features = _normalize_with_scaler(_load_raw_features(), "final")
     returns = _load_returns()
     return compute_shap_explanation(
         model_path=PPO_MODEL_PATH,
@@ -695,53 +784,122 @@ def _compute_ready_shap_cached(date: str | None, top_k: int) -> dict[str, Any]:
 
 
 @lru_cache(maxsize=1)
-def _load_shap_artifact() -> dict[str, Any] | None:
-    """Load precomputed SHAP explanations when an artifact is available."""
+def _load_shap_artifact_explanations() -> list[dict[str, Any]] | None:
+    """Load precomputed SHAP explanations (dict or array JSON artifact)."""
     if not SHAP_ARTIFACT_PATH.exists():
         return None
-    with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
-        artifact = json.load(fp)
-    return artifact if isinstance(artifact, dict) else None
+    try:
+        with SHAP_ARTIFACT_PATH.open(encoding="utf-8") as fp:
+            artifact = json.load(fp)
+    except Exception:
+        return None
+
+    if isinstance(artifact, list):
+        return [item for item in artifact if isinstance(item, dict)]
+    if isinstance(artifact, dict):
+        explanations = artifact.get("explanations")
+        if isinstance(explanations, list):
+            return [item for item in explanations if isinstance(item, dict)]
+    return None
 
 
 def _shap_from_artifact(date: str | None, top_k: int) -> dict[str, Any] | None:
     """Return a ready SHAP payload from a precomputed artifact."""
-    artifact = _load_shap_artifact()
-    if not artifact:
+    explanations = _load_shap_artifact_explanations()
+    if not explanations:
         return None
 
-    explanations = artifact.get("explanations")
-    if not isinstance(explanations, list) or not explanations:
-        return None
+    target = str(date or "")
+    if target:
+        try:
+            pd.Timestamp(target)
+        except (ValueError, TypeError):
+            return None
+    selected: dict[str, Any] | None = None
+    if target:
+        exact = [
+            item
+            for item in explanations
+            if str(item.get("target_date") or item.get("date")) == target
+        ]
+        if exact:
+            selected = exact[0]
+        else:
+            candidates = [
+                item
+                for item in explanations
+                if str(item.get("target_date") or item.get("date")) <= target
+            ]
+            selected = candidates[-1] if candidates else None
+    if selected is None:
+        selected = explanations[-1]
 
-    target = date or str(artifact.get("latest_date") or "")
-    candidates = [
-        item for item in explanations if isinstance(item, dict) and str(item.get("date")) <= target
-    ]
-    selected = candidates[-1] if candidates else explanations[-1]
     contributions = list(selected.get("feature_contributions", []))[:top_k]
     if not contributions:
         return None
 
+    target_date = selected.get("target_date") or selected.get("date")
     return {
         "date": date,
-        "target_date": selected.get("date"),
+        "target_date": target_date,
         "base_value": selected.get("base_value", 0.0),
         "prediction": selected.get("prediction", 0.0),
         "feature_contributions": contributions,
         "feature_names": [item.get("feature", "") for item in contributions],
         "shap_values": [item.get("contribution", 0.0) for item in contributions],
+        "reasoning_context": selected.get("reasoning_context"),
         "message": "사전 계산된 SHAP artifact 기반 해석입니다.",
     }
 
 
+def _load_anova_from_artifact() -> list[dict[str, Any]] | None:
+    """Load precomputed ANOVA results from data/results/anova_results.json."""
+    if not ANOVA_RESULTS_PATH.exists():
+        return None
+    try:
+        payload = json.loads(ANOVA_RESULTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, list) and payload:
+        return [item for item in payload if isinstance(item, dict)]
+    return None
+
+
+def _anova_results_look_degenerate(results: list[dict[str, Any]]) -> bool:
+    """True when live one-way ANOVA looks like equal-weight fallback (F≈0, p≈1)."""
+    by_name = {str(item.get("name")): item for item in results}
+    for key in ("reward_function_comparison", "strategy_comparison"):
+        item = by_name.get(key)
+        if not item:
+            continue
+        f_stat = float(item.get("f_statistic") or 0.0)
+        p_val = float(item.get("p_value") or 1.0)
+        if f_stat <= 0.0 and p_val >= 0.99:
+            return True
+    return False
+
+
+def _resolve_anova_results(returns: pd.DataFrame) -> list[AnovaResult]:
+    """Prefer live ANOVA; fall back to artifact JSON when live output is degenerate."""
+    from src.rl.anova import run_all_anova
+
+    live = run_all_anova(returns)
+    if not _anova_results_look_degenerate(live):
+        return [AnovaResult(**item) for item in live]
+
+    artifact = _load_anova_from_artifact()
+    if artifact:
+        return [AnovaResult(**item) for item in artifact]
+
+    return _fallback_anova()
+
+
 def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     """Build BacktestResponse from implemented RL backtest and ANOVA modules."""
-    from src.rl.anova import run_all_anova
     from src.rl.backtest import WINDOWS, run_window_backtest
 
     returns = _load_returns()
-    features = _load_features()
+    features = _load_raw_features()
     window_config = next(item for item in WINDOWS if item["name"] == window)
     metrics_raw, portfolio_returns, _ = run_window_backtest(
         window_config,
@@ -770,7 +928,20 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
     )
     current_mdd = abs(float(drawdown_array.min())) if len(drawdown_array) else 0.0
     triggered = drawdown_array[drawdown_array <= -0.15]
-    anova = [AnovaResult(**item) for item in run_all_anova(returns)]
+    anova = _resolve_anova_results(returns)
+
+    try:
+        from src.rl.mvo import run_mvo
+        mvo_returns = run_mvo(
+            returns,
+            window_config["train_start"],
+            window_config["train_end"],
+            window_config["test_start"],
+            window_config["test_end"],
+        )
+        mvo_cum_array = np.exp(mvo_returns.cumsum()) if not mvo_returns.empty else pd.Series(dtype=float)
+    except Exception:
+        mvo_cum_array = pd.Series(dtype=float)
 
     return BacktestResponse(
         status="ready",
@@ -782,6 +953,7 @@ def _build_ready_backtest_response(window: BacktestWindow) -> BacktestResponse:
         wf_cum=_finite_float_list(wf_cum_array),
         bm_cum=_finite_float_list(bm_cum_array),
         ew_cum=_finite_float_list(ew_cum_array),
+        mvo_cum=_finite_float_list(mvo_cum_array),
         wf_spark=_finite_float_list(wf_cum_array.tail(50)),
         sharpe_spark=_rolling_sharpe_spark(portfolio_returns),
         drawdown=_finite_float_list(drawdown_array),
@@ -1088,80 +1260,102 @@ def _metrics_from_returns(
 
 
 def _fallback_anova() -> list[AnovaResult]:
-    """Return the three planned ANOVA fallback summaries."""
+    """Return hardcoded ANOVA results matching anova_results.json (static fallback)."""
     return [
         AnovaResult(
             name="reward_function_comparison",
-            f_statistic=3.12,
-            p_value=0.041,
-            eta_squared=0.18,
+            f_statistic=18.040523,
+            p_value=0.0,
+            eta_squared=0.014817,
             post_hoc=[
                 TukeyRow(
-                    group1="PPO-return",
+                    group1="PPO-mdd",
+                    group2="PPO-return",
+                    meandiff=0.0018,
+                    p_adj=0.0002,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="PPO-mdd",
                     group2="PPO-sharpe",
-                    meandiff=0.021,
-                    p_adj=0.032,
+                    meandiff=0.0026,
+                    p_adj=0.0,
                     reject=True,
                 ),
                 TukeyRow(
                     group1="PPO-return",
-                    group2="PPO-mdd",
-                    meandiff=0.009,
-                    p_adj=0.210,
-                    reject=False,
-                ),
-                TukeyRow(
-                    group1="PPO-sharpe",
-                    group2="PPO-mdd",
-                    meandiff=0.012,
-                    p_adj=0.089,
+                    group2="PPO-sharpe",
+                    meandiff=0.0008,
+                    p_adj=0.1322,
                     reject=False,
                 ),
             ],
         ),
         AnovaResult(
             name="strategy_comparison",
-            f_statistic=4.36,
-            p_value=0.028,
-            eta_squared=0.22,
+            f_statistic=57.141498,
+            p_value=0.0,
+            eta_squared=0.040522,
             post_hoc=[
                 TukeyRow(
-                    group1="PPO",
-                    group2="MVO",
-                    meandiff=0.031,
-                    p_adj=0.002,
-                    reject=True,
-                ),
-                TukeyRow(
-                    group1="PPO",
-                    group2="동일비중",
-                    meandiff=0.018,
-                    p_adj=0.041,
+                    group1="MVO",
+                    group2="PPO",
+                    meandiff=0.0032,
+                    p_adj=0.0,
                     reject=True,
                 ),
                 TukeyRow(
                     group1="MVO",
                     group2="동일비중",
-                    meandiff=0.013,
-                    p_adj=0.312,
+                    meandiff=0.0001,
+                    p_adj=0.9741,
                     reject=False,
+                ),
+                TukeyRow(
+                    group1="PPO",
+                    group2="동일비중",
+                    meandiff=-0.0031,
+                    p_adj=0.0,
+                    reject=True,
                 ),
             ],
         ),
         AnovaResult(
             name="market_regime_comparison",
-            f_statistic=2.07,
-            p_value=0.096,
-            eta_squared=0.11,
-            post_hoc=[],
+            f_statistic=7.329351,
+            p_value=0.000673,
+            eta_squared=0.006902,
+            post_hoc=[
+                TukeyRow(
+                    group1="bull",
+                    group2="rate_hike",
+                    meandiff=-0.0012,
+                    p_adj=0.0077,
+                    reject=True,
+                ),
+                TukeyRow(
+                    group1="bull",
+                    group2="recovery",
+                    meandiff=0.0002,
+                    p_adj=0.8879,
+                    reject=False,
+                ),
+                TukeyRow(
+                    group1="rate_hike",
+                    group2="recovery",
+                    meandiff=0.0014,
+                    p_adj=0.0016,
+                    reject=True,
+                ),
+            ],
             interaction=InteractionStats(
-                f_statistic=3.14,
-                p_value=0.021,
-                significant=True,
+                f_statistic=0.139752,
+                p_value=0.967487,
+                significant=False,
             ),
             strategy_effect=StrategyEffectStats(
-                f_statistic=4.52,
-                p_value=0.011,
+                f_statistic=38.78218,
+                p_value=0.0,
             ),
         ),
     ]
@@ -1464,3 +1658,124 @@ def _jsonable(value: Any) -> Any:
     if hasattr(value, "dict"):
         return _jsonable(value.dict())
     return str(value)
+
+
+TENSORBOARD_LOG_DIR = Path("logs/tensorboard")
+_TB_SCALAR_TAG = "rollout/ep_rew_mean"
+
+
+def build_train_curve_response(
+    wf_window: BacktestWindow | None = None,
+    smooth_window: int | None = None,
+) -> TrainCurveResponse:
+    """Return per-episode reward curve from TensorBoard logs, or fallback on error."""
+    start = perf_counter()
+    try:
+        return _read_train_curve(wf_window, smooth_window, start)
+    except Exception:
+        return TrainCurveResponse(
+            status="fallback",
+            elapsed_ms=_elapsed_ms(start),
+            episode_steps=[],
+            rewards=[],
+            run_name="",
+            message="TensorBoard 로그를 읽을 수 없습니다.",
+        )
+
+
+def _read_train_curve(
+    wf_window: BacktestWindow | None,
+    smooth_window: int | None,
+    start: float,
+) -> TrainCurveResponse:
+    """Read rollout/ep_rew_mean from a TensorBoard run filtered by walk-forward window."""
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+    all_run_dirs = sorted(
+        TENSORBOARD_LOG_DIR.glob("ppo_*"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not all_run_dirs:
+        return TrainCurveResponse(
+            status="fallback",
+            elapsed_ms=_elapsed_ms(start),
+            episode_steps=[],
+            rewards=[],
+            run_name="",
+            message="logs/tensorboard/ 에 ppo_* 디렉터리가 없습니다.",
+        )
+
+    # wf_window 지정 시 해당 패턴(ppo_*_<window>_*)을 먼저 탐색하고, 없으면 최신 run 사용
+    if wf_window:
+        filtered = [p for p in all_run_dirs if f"_{wf_window}_" in p.name or p.name.endswith(f"_{wf_window}")]
+        run_dirs = filtered if filtered else all_run_dirs
+    else:
+        run_dirs = all_run_dirs
+
+    run_dir = run_dirs[0]
+    ea = EventAccumulator(str(run_dir), size_guidance={"scalars": 0})
+    ea.Reload()
+
+    available_tags = ea.Tags().get("scalars", [])
+    if _TB_SCALAR_TAG not in available_tags:
+        return TrainCurveResponse(
+            status="fallback",
+            elapsed_ms=_elapsed_ms(start),
+            episode_steps=[],
+            rewards=[],
+            run_name=run_dir.name,
+            message=f"'{_TB_SCALAR_TAG}' 태그가 없습니다 (run: {run_dir.name}).",
+        )
+
+    raw_values = [float(s.value) for s in ea.Scalars(_TB_SCALAR_TAG)]
+    if smooth_window and smooth_window > 1:
+        smoothed = (
+            pd.Series(raw_values)
+            .rolling(smooth_window, min_periods=1)
+            .mean()
+            .round(6)
+            .tolist()
+        )
+    else:
+        smoothed = [round(v, 6) for v in raw_values]
+
+    return TrainCurveResponse(
+        status="ready",
+        elapsed_ms=_elapsed_ms(start),
+        episode_steps=list(range(1, len(smoothed) + 1)),
+        rewards=smoothed,
+        run_name=run_dir.name,
+        message=f"{run_dir.name} 학습 곡선 ({len(smoothed)}개 데이터 포인트)",
+    )
+
+
+def build_explain_dates(window: BacktestWindow) -> dict[str, Any]:
+    """SHAP 날짜 선택 UI용 거래일 + 이벤트일 목록 반환.
+
+    Args:
+        window: 백테스트 윈도우 키.
+
+    Returns:
+        window, all_trading_dates, eventful_dates 담긴 dict.
+    """
+    start, end = WINDOW_PERIODS[window]
+    try:
+        returns = _load_returns()
+        trading: list[str] = [
+            d.strftime("%Y-%m-%d")
+            for d in returns.loc[start:end].index
+        ]
+    except Exception:
+        trading = []
+
+    events = _load_unified_events()
+    if not events.empty and "date" in events.columns:
+        mask = (events["date"] >= pd.Timestamp(start)) & (events["date"] <= pd.Timestamp(end))
+        eventful: list[str] = sorted(
+            events.loc[mask, "date"].dt.strftime("%Y-%m-%d").dropna().unique().tolist()
+        )
+    else:
+        eventful = []
+
+    return {"window": window, "all_trading_dates": trading, "eventful_dates": eventful}

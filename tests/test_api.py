@@ -258,7 +258,7 @@ def test_normalize_risk_signals_rejects_invalid_rows() -> None:
 
 def test_explain_returns_feature_contributions() -> None:
     """POST /explain should provide SHAP-like contribution records."""
-    api_services._load_shap_artifact.cache_clear()
+    api_services._load_shap_artifact_explanations.cache_clear()
     response = client.post("/explain", json={"date": "2024-12-31", "top_k": 5})
 
     assert response.status_code == 200
@@ -318,6 +318,7 @@ def test_explain_uses_ready_shap_module_when_available(monkeypatch) -> None:
     monkeypatch.setattr(
         api_services, "_compute_ready_shap_with_timeout", fake_compute_ready_shap, raising=False
     )
+    monkeypatch.setattr(api_services, "_shap_from_artifact", lambda *_args, **_kwargs: None)
 
     response = client.post("/explain", json={"date": "2024-12-31", "top_k": 1})
 
@@ -338,6 +339,7 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
                 "explanations": [
                     {
                         "date": "2025-12-30",
+                        "target_date": "2025-12-30",
                         "base_value": 0.2,
                         "prediction": 0.25,
                         "feature_contributions": [
@@ -354,7 +356,7 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     def fail_live_shap(date: str | None, top_k: int) -> dict:
         raise AssertionError("live SHAP should not run when artifact exists")
 
-    api_services._load_shap_artifact.cache_clear()
+    api_services._load_shap_artifact_explanations.cache_clear()
     monkeypatch.setattr(api_services, "SHAP_ARTIFACT_PATH", artifact_path)
     monkeypatch.setattr(api_services, "_compute_ready_shap_with_timeout", fail_live_shap)
 
@@ -366,7 +368,78 @@ def test_explain_prefers_precomputed_shap_artifact(monkeypatch, tmp_path) -> Non
     assert payload["target_date"] == "2025-12-30"
     assert payload["feature_names"] == ["SPY_RSI"]
     assert "artifact" in payload["message"]
-    api_services._load_shap_artifact.cache_clear()
+    api_services._load_shap_artifact_explanations.cache_clear()
+
+
+def test_shap_artifact_loader_accepts_array_json(tmp_path) -> None:
+    """Array-format shap_explanations.json should be usable by the artifact loader."""
+    artifact_path = tmp_path / "shap_explanations.json"
+    artifact_path.write_text(
+        json.dumps(
+            [
+                {
+                    "date": "2025-02-28",
+                    "target_date": "2025-02-28",
+                    "base_value": 1.0,
+                    "prediction": 2.0,
+                    "feature_contributions": [
+                        {"feature": "GLD_return_t-1", "value": 0.1, "contribution": 0.5},
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    api_services._load_shap_artifact_explanations.cache_clear()
+    original = api_services.SHAP_ARTIFACT_PATH
+    api_services.SHAP_ARTIFACT_PATH = artifact_path
+    try:
+        payload = api_services._shap_from_artifact("2025-02-28", top_k=1)
+    finally:
+        api_services.SHAP_ARTIFACT_PATH = original
+        api_services._load_shap_artifact_explanations.cache_clear()
+
+    assert payload is not None
+    assert payload["target_date"] == "2025-02-28"
+    assert payload["feature_names"] == ["GLD_return_t-1"]
+
+
+def test_resolve_anova_results_falls_back_to_artifact_when_live_degenerate(
+    monkeypatch, tmp_path
+) -> None:
+    """Degenerate live ANOVA (F=0) should fall back to anova_results.json."""
+    artifact_path = tmp_path / "anova_results.json"
+    artifact_path.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "reward_function_comparison",
+                    "f_statistic": 18.04,
+                    "p_value": 0.0,
+                    "eta_squared": 0.015,
+                    "post_hoc": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_run_all_anova(_returns):
+        return [
+            {
+                "name": "reward_function_comparison",
+                "f_statistic": 0.0,
+                "p_value": 1.0,
+                "eta_squared": 0.0,
+                "post_hoc": [],
+            }
+        ]
+
+    monkeypatch.setattr(api_services, "ANOVA_RESULTS_PATH", artifact_path)
+    monkeypatch.setattr("src.rl.anova.run_all_anova", fake_run_all_anova)
+
+    results = api_services._resolve_anova_results(api_services._load_returns())
+    assert results[0].f_statistic == 18.04
 
 
 def test_explain_attaches_reasoning_context_for_risk_features_only(
@@ -679,6 +752,12 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         yield {"event": "on_parser_start", "name": "ignored", "data": {"input": "skip"}}
         yield {"event": "on_chain_start", "name": "planner", "data": {"input": {"query": question}}}
         yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "초안"})()},
+        }
+        yield {
             "event": "on_chain_end",
             "name": "analyst",
             "data": {
@@ -703,17 +782,184 @@ def test_research_stream_returns_ndjson_events(monkeypatch) -> None:
         assert response.headers["x-accel-buffering"] == "no"
         lines = [line for line in response.iter_lines() if line]
 
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert '"type":"start"' in lines[0]
     assert '"type":"on_chain_start"' in lines[1]
     assert '"name":"planner"' in lines[1]
+    assert '"elapsed_ms"' in lines[1]
     assert '"data"' not in lines[1]
     assert len(lines[1]) < 1000
-    assert '"type":"on_chain_end"' in lines[2]
+    assert '"type":"on_chat_model_stream"' in lines[2]
+    assert '"node":"analyst"' in lines[2]
+    assert '"text":"초안"' in lines[2]
+    assert '"type":"on_chain_end"' in lines[3]
     assert '"type":"complete"' in lines[-1]
     assert '"report":"분석 완료"' in lines[-1]
+    assert '"timings"' in lines[-1]
     assert "equity_market_risk" in lines[-1]
     assert '"risk_signals":[{"tag":"equity_market_risk","severity":0.66}]' in lines[-1]
+
+
+def test_research_stream_keeps_nested_route_timing_separate(monkeypatch) -> None:
+    """Nested router events should not overwrite grade_documents timing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chain_start",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"input": {"query": question}},
+        }
+        yield {
+            "event": "on_chain_start",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"input": {}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "route_after_grade",
+            "run_id": "route-run",
+            "metadata": {"langgraph_node": "grade_documents"},
+            "data": {"output": "analyst"},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "grade_documents",
+            "run_id": "grade-run",
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    route_end = next(
+        event
+        for event in lines
+        if event.get("name") == "route_after_grade" and event["type"].endswith("_end")
+    )
+    grade_end = next(
+        event
+        for event in lines
+        if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+    )
+    complete = lines[-1]
+
+    assert "duration_ms" in route_end
+    assert "duration_ms" in grade_end
+    assert "route_after_grade_ms" in complete["timings"]
+    assert "grade_documents_ms" in complete["timings"]
+
+
+def test_research_stream_matches_timing_without_run_id(monkeypatch) -> None:
+    """Events without run_id should still match start/end timing buckets."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chain_start",
+            "name": "grade_documents",
+            "data": {"input": {"query": question}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "grade_documents",
+            "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    grade_end = next(
+        event
+        for event in lines
+        if event.get("name") == "grade_documents" and event["type"].endswith("_end")
+    )
+    complete = lines[-1]
+
+    assert "duration_ms" in grade_end
+    assert "grade_documents_ms" in complete["timings"]
+
+
+def test_research_stream_preserves_repeated_node_timings(monkeypatch) -> None:
+    """Repeated node executions should keep each timing instead of overwriting."""
+
+    async def fake_stream_graph_events(question: str):
+        for run_id in ("grade-run-1", "grade-run-2"):
+            yield {
+                "event": "on_chain_start",
+                "name": "grade_documents",
+                "run_id": run_id,
+                "data": {"input": {"query": question}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "grade_documents",
+                "run_id": run_id,
+                "data": {"output": {"response": "분석 완료", "risk_tags": ["equity_market_risk"]}},
+            }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    complete = lines[-1]
+
+    assert "grade_documents_ms" in complete["timings"]
+    assert "grade_documents_2_ms" in complete["timings"]
+
+
+def test_research_stream_maps_chat_tokens_to_langgraph_node(monkeypatch) -> None:
+    """Chat model stream chunks should use the LangGraph node name for dashboard routing."""
+
+    async def fake_stream_graph_events(question: str):
+        yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "metadata": {"langgraph_node": "analyst"},
+            "data": {"chunk": type("Chunk", (), {"content": "실시간 토큰"})()},
+        }
+        yield {
+            "event": "on_chain_end",
+            "name": "analyst",
+            "data": {"output": {"response": "실시간 토큰"}},
+        }
+
+    monkeypatch.setattr(api_services.settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(api_services, "stream_graph_events", fake_stream_graph_events)
+
+    with client.stream(
+        "POST",
+        "/research/stream",
+        json={"question": "금리 급등 리스크는?"},
+    ) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert lines[1]["type"] == "on_chat_model_stream"
+    assert lines[1]["name"] == "ChatOpenAI"
+    assert lines[1]["node"] == "analyst"
+    assert lines[1]["text"] == "실시간 토큰"
 
 
 def test_research_stream_falls_back_quickly_without_api_key(monkeypatch) -> None:

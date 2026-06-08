@@ -1,6 +1,6 @@
 """Pydantic schemas for the FastAPI backend."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -112,6 +112,14 @@ class ExplainResponse(BaseModel):
     message: str
 
 
+class ExplainDatesResponse(BaseModel):
+    """SHAP 날짜 선택 UI를 위한 거래일·이벤트일 목록."""
+
+    window: BacktestWindow
+    all_trading_dates: list[str]
+    eventful_dates: list[str]
+
+
 class ResearchRequest(BaseModel):
     """RAG research request."""
 
@@ -124,6 +132,7 @@ class ResearchResponse(BaseModel):
     status: EndpointStatus
     elapsed_ms: float = 0.0
     timed_out: bool = False
+    timings: dict[str, Any] = Field(default_factory=dict)
     question: str
     report: str
     sources: list[str]
@@ -169,6 +178,17 @@ class AnovaResult(BaseModel):
     strategy_effect: StrategyEffectStats | None = None
 
 
+class TrainCurveResponse(BaseModel):
+    """에피소드별 누적 보상 학습 곡선 응답."""
+
+    status: EndpointStatus
+    elapsed_ms: float = 0.0
+    episode_steps: list[int]
+    rewards: list[float]
+    run_name: str
+    message: str
+
+
 class SafeguardState(BaseModel):
     """Safe-Guard runtime state for backtest summaries."""
 
@@ -191,6 +211,7 @@ class BacktestResponse(BaseModel):
     wf_cum: list[float]
     bm_cum: list[float]
     ew_cum: list[float] = Field(default_factory=list)
+    mvo_cum: list[float] = Field(default_factory=list)
     wf_spark: list[float]
     sharpe_spark: list[float]
     drawdown: list[float]
