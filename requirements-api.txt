@@ -11,6 +11,7 @@ gymnasium[classic-control]==1.2.3
 stable-baselines3==2.8.0
 shap>=0.51.0
 chromadb==1.5.6
+feedparser==6.0.12
 langchain==1.2.15
 langchain-openai==1.1.12
 langchain-core==1.2.27
