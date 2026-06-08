@@ -1,0 +1,35 @@
+# Production-only compose. Do NOT use for local development.
+# Images are pulled from Docker Hub, not built locally.
+# DOCKERHUB_USERNAME must be set in the server's .env file.
+
+services:
+  # One-shot ChromaDB refresh — run by deploy workflow before api/dashboard start.
+  # docker compose -f docker-compose.prod.yml run --rm collector
+  collector:
+    image: ${DOCKERHUB_USERNAME}/rl-rag-api:latest
+    env_file: .env
+    volumes:
+      - chroma_data:/app/chroma_db
+    command: python -m src.agent.news_collector
+    restart: "no"
+
+  api:
+    image: ${DOCKERHUB_USERNAME}/rl-rag-api:latest
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/app/chroma_db
+    restart: unless-stopped
+
+  dashboard:
+    image: ${DOCKERHUB_USERNAME}/rl-rag-dashboard:latest
+    env_file: .env
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    depends_on:
+      - api
+
+volumes:
+  chroma_data:
